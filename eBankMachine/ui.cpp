@@ -51,7 +51,9 @@ void showConfirmWithdraw(long pogs) {
   lcd.print(F("*=No   #=Yes"));
 }
 
-void showDepositEnterId() { showEntry(F("Enter ID")); }
+void showDepositEnterId() { 
+  showEntry(F("Enter ID")); 
+}
 
 void showDepositScanning() {
   lcd.clear();

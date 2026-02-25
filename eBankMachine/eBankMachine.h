@@ -13,7 +13,6 @@
 #include <ESPmDNS.h>
 #include <Update.h>
 
-#include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <ESP32Servo.h>
 #include <Adafruit_PN532.h>
@@ -27,11 +26,11 @@ extern const char* WIFI_PASS;
 extern const char* TRANSFER_URL;
 extern const char* API_KEY;
 
-extern const int   KIOSK_ID;
-extern const int   KIOSK_ACCOUNT_PIN;
+extern const int KIOSK_ID;
+extern const int KIOSK_ACCOUNT_PIN;
 
-extern const int   DIGIPOGS_PER_POG_WITHDRAW;
-extern const int   DIGIPOGS_PER_POG_DEPOSIT;
+extern const int DIGIPOGS_PER_POG_WITHDRAW;
+extern const int DIGIPOGS_PER_POG_DEPOSIT;
 
 extern const char* OTA_HOST;
 extern const char* OTA_PASSWORD;
@@ -41,20 +40,26 @@ static constexpr int SCL_PIN = 22;
 
 static constexpr uint8_t LCD_ADDR = 0x27;
 
-static constexpr int PN532_IRQ   = -1;
+static constexpr int PN532_IRQ = -1;
 static constexpr int PN532_RESET = -1;
 static constexpr uint16_t PN532_TIMEOUT_MS = 100;
 
 static constexpr int IR_DROP_PIN = 34;
-static constexpr int IR_DEP_PIN  = 35;
+static constexpr int IR_DEP_PIN = 35;
 
 static constexpr int SERVO_PIN = 14;
 
-static constexpr int  SWITCH_PIN = 23;
+static constexpr int SWITCH_PIN = 23;
 static constexpr bool ACTIVE_LOW = true;
 
+enum LCDMode {
+  LCD_MODE_PARALLEL,
+  LCD_MODE_I2C,
+  LCD_MODE_SERIAL
+};
+
 #ifndef LED_BUILTIN
-  #define LED_BUILTIN 2
+#define LED_BUILTIN 2
 #endif
 static constexpr int LED_PIN = LED_BUILTIN;
 
@@ -73,34 +78,80 @@ extern int neutral_us;
 extern int SERVO_DOWN_US;
 extern int SERVO_UP_US;
 
+// ============================
+// LCD WRAPPER CLASS
+// ============================
+
+#pragma once
+#ifdef USE_LCD_I2C
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#endif
+#ifdef USE_LCD_PARALLEL
+#include <LiquidCrystal.h>
+#endif
+
+class LCDWrapper {
+public:
+  enum LCDMode { LCD_MODE_I2C,
+                 LCD_MODE_PARALLEL,
+                 LCD_MODE_SERIAL };
+
+  void begin(LCDMode mode = LCD_MODE_SERIAL);
+  void clear();
+  void setCursor(uint8_t col, uint8_t row);
+  void print(const String& text);
+  void print(const char* text);
+  void print(int value);
+  void print(long value);
+
+private:
+  LCDMode currentMode;
+
+#ifdef USE_LCD_I2C
+  LiquidCrystal_I2C lcd_i2c{ 0x27, 16, 2 };
+#endif
+#ifdef USE_LCD_PARALLEL
+  // RS, E, D4, D5, D6, D7
+  LiquidCrystal lcd_parallel(2, 4, 5, 12, 15, 17);
+#endif
+};
 
 // ============================
 // GLOBALS (from globals.h)
 // ============================
 extern WebServer server;
-extern LiquidCrystal_I2C lcd;
+extern LCDWrapper lcd;
 extern Servo myServo;
 extern Adafruit_PN532 nfc;
 extern Keypad keypad;
 
 extern bool otaStarted;
 
-enum TradeMode { MODE_SELECT, MODE_DIGI_TO_REAL, MODE_REAL_TO_DIGI, MODE_UPDATE_CARD };
+enum TradeMode { MODE_SELECT,
+                 MODE_DIGI_TO_REAL,
+                 MODE_REAL_TO_DIGI,
+                 MODE_UPDATE_CARD };
 extern TradeMode tradeMode;
 
-extern char    numBuf[10];
+extern char numBuf[10];
 extern uint8_t numLen;
 
-enum WizardState { WZ_ENTER_FROM, WZ_ENTER_PIN, WZ_ENTER_POGS, WZ_CONFIRM };
+enum WizardState { WZ_ENTER_FROM,
+                   WZ_ENTER_PIN,
+                   WZ_ENTER_POGS,
+                   WZ_CONFIRM };
 extern WizardState wzState;
 extern long wzFrom, wzPin, wzPogs;
 
-enum DepositState { DEP_ENTER_ID, DEP_SCANNING };
+enum DepositState { DEP_ENTER_ID,
+                    DEP_SCANNING };
 extern DepositState depState;
 extern long depToId;
-extern int  depositCount;
+extern int depositCount;
 
-enum CardState { CARD_ENTER_ID, CARD_TAP_TO_WRITE };
+enum CardState { CARD_ENTER_ID,
+                 CARD_TAP_TO_WRITE };
 extern CardState cardState;
 extern long cardWriteId;
 extern bool pendingCardWrite;
@@ -127,7 +178,8 @@ extern unsigned long depLastSampleUs;
 extern volatile int targetDrops;
 extern volatile int droppedCount;
 
-enum MotionState { MS_IDLE, MS_DROPPING };
+enum MotionState { MS_IDLE,
+                   MS_DROPPING };
 extern MotionState motionState;
 
 extern bool refundPending;

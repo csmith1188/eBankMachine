@@ -15,7 +15,7 @@ static byte rowPins[ROWS] = { 19, 18, 33, 32 };
 static byte colPins[COLS] = { 25, 26, 27, 13 };
 
 WebServer server(80);
-LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
+LCDWrapper lcd;
 Servo myServo;
 Adafruit_PN532 nfc(PN532_IRQ, PN532_RESET);
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
