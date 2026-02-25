@@ -139,8 +139,7 @@ void hardwareInit() {
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(40);
 
-  lcd.init();
-  lcd.backlight();
+  lcd.begin(LCDWrapper::LCD_MODE_SERIAL);  // Use the new serial mode
   showMsg("BOOTING...", nullptr, 500);
 
   // PN532
