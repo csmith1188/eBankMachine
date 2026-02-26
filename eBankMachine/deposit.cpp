@@ -41,7 +41,8 @@ void handleDepositKey(char k) {
 
   if (depState == DEP_ENTER_ID) {
     if (k == '*') {
-      showDepositEnterId();
+      if (depToId == 0) { tradeMode = MODE_SELECT; showModeMenu(); }
+      else showDepositEnterId();
       return;
     }
     if (k >= '0' && k <= '9') {

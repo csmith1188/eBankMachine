@@ -44,7 +44,10 @@ void handleWithdrawKey(char k) {
   // Cancel / clear
   if (k == '*') {
     if (wzState == WZ_CONFIRM) { tradeMode = MODE_SELECT; showModeMenu(); }
-    else clearEntryLine();
+    else if (wzState == WZ_ENTER_POGS && wzPogs == 0) { tradeMode = MODE_SELECT; showModeMenu(); }
+    else if (wzState == WZ_ENTER_PIN && wzPin == 0) { tradeMode = MODE_SELECT; showModeMenu(); }
+    else if (wzState == WZ_ENTER_FROM && wzFrom == 0) { tradeMode = MODE_SELECT; showModeMenu(); }
+    else {clearEntryLine();}
     return;
   }
 
