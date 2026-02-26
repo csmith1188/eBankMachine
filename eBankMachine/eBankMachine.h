@@ -52,12 +52,6 @@ static constexpr int SERVO_PIN = 14;
 static constexpr int SWITCH_PIN = 23;
 static constexpr bool ACTIVE_LOW = true;
 
-enum LCDMode {
-  LCD_MODE_PARALLEL,
-  LCD_MODE_I2C,
-  LCD_MODE_SERIAL
-};
-
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
 #endif
@@ -82,38 +76,30 @@ extern int SERVO_UP_US;
 // LCD WRAPPER CLASS
 // ============================
 
-#pragma once
+#define USE_LCD_I2C
+//comment out if backpack isn't available
+
 #ifdef USE_LCD_I2C
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #endif
-#ifdef USE_LCD_PARALLEL
-#include <LiquidCrystal.h>
-#endif
 
 class LCDWrapper {
 public:
-  enum LCDMode { LCD_MODE_I2C,
-                 LCD_MODE_PARALLEL,
-                 LCD_MODE_SERIAL };
-
-  void begin(LCDMode mode = LCD_MODE_SERIAL);
-  void clear();
-  void setCursor(uint8_t col, uint8_t row);
-  void print(const String& text);
-  void print(const char* text);
-  void print(int value);
-  void print(long value);
+    void begin();
+    void clear();
+    void setCursor(uint8_t col, uint8_t row);
+    void print(const String& text);
+    void print(const char* text);
+    void print(int value);
+    void print(long value);
 
 private:
-  LCDMode currentMode;
-
 #ifdef USE_LCD_I2C
-  LiquidCrystal_I2C lcd_i2c{ 0x27, 16, 2 };
-#endif
-#ifdef USE_LCD_PARALLEL
-  // RS, E, D4, D5, D6, D7
-  LiquidCrystal lcd_parallel(2, 4, 5, 12, 15, 17);
+    LiquidCrystal_I2C lcd{0x27, 16, 2};
+    bool usingLCD = true;
+#else
+    bool usingLCD = false;
 #endif
 };
 
