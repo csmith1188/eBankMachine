@@ -19,6 +19,9 @@ void cardTick() {
 }
 
 void handleCardKey(char k) {
-  (void)k;
+  if (k == '*') {
+    tradeMode = MODE_SELECT; 
+    showModeMenu();
+  }
   // placeholder
 }

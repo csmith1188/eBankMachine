@@ -1,65 +1,67 @@
+// ============================
+// FILE: LCDWrapper.cpp
+// ============================
 #include "eBankMachine.h"
 
-void LCDWrapper::begin(LCDMode mode) {
-    currentMode = mode;
-
+void LCDWrapper::begin() {
 #ifdef USE_LCD_I2C
-    if (mode == LCD_MODE_I2C) {
-        Wire.begin(SDA_PIN, SCL_PIN);
-        lcd_i2c.init();
-        lcd_i2c.backlight();
-    }
+    Wire.begin(21, 22); // SDA, SCL
+    lcd.init();
+    lcd.backlight();
+    usingLCD = true;
+#else
+    Serial.begin(115200);
+    Serial.println("I2C not enabled — using SERIAL mode");
+    usingLCD = false;
 #endif
-
-#ifdef USE_LCD_PARALLEL
-    if (mode == LCD_MODE_PARALLEL) {
-        lcd_parallel.begin(16, 2);
-    }
-#endif
-
-    if (mode == LCD_MODE_SERIAL) {
-        Serial.begin(115200);
-    }
 }
 
 void LCDWrapper::clear() {
-    switch (currentMode) {
-#ifdef USE_LCD_I2C
-        case LCD_MODE_I2C: lcd_i2c.clear(); break;
-#endif
-#ifdef USE_LCD_PARALLEL
-        case LCD_MODE_PARALLEL: lcd_parallel.clear(); break;
-#endif
-        case LCD_MODE_SERIAL: Serial.println("[LCD CLEAR]"); break;
-    }
+    if (usingLCD) lcd.clear();
+    else Serial.println("\n[LCD CLEAR]");
 }
 
 void LCDWrapper::setCursor(uint8_t col, uint8_t row) {
-    switch (currentMode) {
-#ifdef USE_LCD_I2C
-        case LCD_MODE_I2C: lcd_i2c.setCursor(col, row); break;
-#endif
-#ifdef USE_LCD_PARALLEL
-        case LCD_MODE_PARALLEL: lcd_parallel.setCursor(col, row); break;
-#endif
-        case LCD_MODE_SERIAL:
-            Serial.print("[CURSOR "); Serial.print(col); Serial.print(","); Serial.print(row); Serial.println("]");
-            break;
+    if (usingLCD) lcd.setCursor(col, row);
+    else {
+        Serial.print("\n[CURSOR ");
+        Serial.print(col);
+        Serial.print(",");
+        Serial.print(row);
+        Serial.print("] ");
     }
+}
+
+void LCDWrapper::print(char c) {
+    if (usingLCD) lcd.print(c);
+    else Serial.print(c);
+}
+
+void LCDWrapper::print(const char* text) {
+    if (usingLCD) lcd.print(text);
+    else Serial.print(text);
 }
 
 void LCDWrapper::print(const String& text) {
-    switch (currentMode) {
-#ifdef USE_LCD_I2C
-        case LCD_MODE_I2C: lcd_i2c.print(text); break;
-#endif
-#ifdef USE_LCD_PARALLEL
-        case LCD_MODE_PARALLEL: lcd_parallel.print(text); break;
-#endif
-        case LCD_MODE_SERIAL: Serial.print(text); break;
+    if (usingLCD) lcd.print(text);
+    else Serial.print(text);
+}
+
+void LCDWrapper::print(const __FlashStringHelper* text) {
+    if (usingLCD) lcd.print(text);
+    else {
+        PGM_P p = reinterpret_cast<PGM_P>(text);
+        char c;
+        while ((c = pgm_read_byte(p++))) Serial.print(c);
     }
 }
 
-void LCDWrapper::print(const char* text) { print(String(text)); }
-void LCDWrapper::print(int value) { print(String(value)); }
-void LCDWrapper::print(long value) { print(String(value)); }
+void LCDWrapper::print(int value) {
+    if (usingLCD) lcd.print(value);
+    else Serial.print(value);
+}
+
+void LCDWrapper::print(long value) {
+    if (usingLCD) lcd.print(value);
+    else Serial.print(value);
+}

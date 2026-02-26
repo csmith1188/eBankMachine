@@ -7,6 +7,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <LiquidCrystal_I2C.h>
 
 #include <Wire.h>
 #include <WebServer.h>
@@ -52,12 +53,6 @@ static constexpr int SERVO_PIN = 14;
 static constexpr int SWITCH_PIN = 23;
 static constexpr bool ACTIVE_LOW = true;
 
-enum LCDMode {
-  LCD_MODE_PARALLEL,
-  LCD_MODE_I2C,
-  LCD_MODE_SERIAL
-};
-
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
 #endif
@@ -82,39 +77,27 @@ extern int SERVO_UP_US;
 // LCD WRAPPER CLASS
 // ============================
 
-#pragma once
-#ifdef USE_LCD_I2C
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#endif
-#ifdef USE_LCD_PARALLEL
-#include <LiquidCrystal.h>
-#endif
+#define USE_LCD_I2C
 
 class LCDWrapper {
 public:
-  enum LCDMode { LCD_MODE_I2C,
-                 LCD_MODE_PARALLEL,
-                 LCD_MODE_SERIAL };
+    void begin();  // Initialize LCD or Serial
+    void clear();
+    void setCursor(uint8_t col, uint8_t row);
 
-  void begin(LCDMode mode = LCD_MODE_SERIAL);
-  void clear();
-  void setCursor(uint8_t col, uint8_t row);
-  void print(const String& text);
-  void print(const char* text);
-  void print(int value);
-  void print(long value);
+    // Print overloads
+    void print(char c);
+    void print(const char* text);
+    void print(const String& text);
+    void print(const __FlashStringHelper* text);
+    void print(int value);
+    void print(long value);
 
 private:
-  LCDMode currentMode;
-
 #ifdef USE_LCD_I2C
-  LiquidCrystal_I2C lcd_i2c{ 0x27, 16, 2 };
+    LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2); // I2C object inside class
 #endif
-#ifdef USE_LCD_PARALLEL
-  // RS, E, D4, D5, D6, D7
-  LiquidCrystal lcd_parallel(2, 4, 5, 12, 15, 17);
-#endif
+    bool usingLCD = false;
 };
 
 // ============================
