@@ -7,6 +7,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <LiquidCrystal_I2C.h>
 
 #include <Wire.h>
 #include <WebServer.h>
@@ -77,30 +78,26 @@ extern int SERVO_UP_US;
 // ============================
 
 #define USE_LCD_I2C
-//comment out if backpack isn't available
-
-#ifdef USE_LCD_I2C
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#endif
 
 class LCDWrapper {
 public:
-    void begin();
+    void begin();  // Initialize LCD or Serial
     void clear();
     void setCursor(uint8_t col, uint8_t row);
-    void print(const String& text);
+
+    // Print overloads
+    void print(char c);
     void print(const char* text);
+    void print(const String& text);
+    void print(const __FlashStringHelper* text);
     void print(int value);
     void print(long value);
 
 private:
 #ifdef USE_LCD_I2C
-    LiquidCrystal_I2C lcd{0x27, 16, 2};
-    bool usingLCD = true;
-#else
-    bool usingLCD = false;
+    LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 16, 2); // I2C object inside class
 #endif
+    bool usingLCD = false;
 };
 
 // ============================
