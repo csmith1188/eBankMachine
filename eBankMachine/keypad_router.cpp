@@ -1,6 +1,3 @@
-// ============================
-// FILE: keypad_router.cpp
-// ============================
 #include "eBankMachine.h"
 
 void keypadTick() {
@@ -11,11 +8,45 @@ void keypadTick() {
     if (keypad.key[i].kstate != PRESSED) continue;
 
     char k = keypad.key[i].kchar;
+    unsigned long now = millis();
 
+    // B x3 -> show IP (but do NOT block normal B unless it actually hits 3)
+    if (k == 'B') {
+      if (bPressCount == 0 || (now - bWindowStart) > D_WINDOW_MS) {
+        bPressCount = 0;
+        bWindowStart = now;
+      }
+
+      bPressCount++;
+
+      if (bPressCount >= 3) {
+        bPressCount = 0;
+        bWindowStart = 0;
+
+        if (WiFi.status() == WL_CONNECTED) {
+          String ip = WiFi.localIP().toString();
+          showMsg("IP Address:", ip.c_str(), 3000);
+        } else {
+          showMsg("WiFi Not", "Connected", 2000);
+        }
+
+        if (tradeMode == MODE_SELECT) showModeMenu();
+        return; // ONLY return when we actually did the IP action
+      }
+
+      // not 3 yet -> allow normal handling (menu deposit, etc.)
+      // (no return here)
+    }
+
+    // Menu mode routing
     if (tradeMode == MODE_SELECT) {
-      if (k == '1') startWithdrawWizard();
-      else if (k == '2') startDepositFlow();
-      else if (k == '3') startCardUpdateFlow();
+      if (k == 'A') startWithdrawWizard();           // Digi -> Pogs
+      else if (k == 'B') startDepositFlow();         // Pogs -> Digi
+      else if (k == 'C') startStudentTransferFlow(); // Student -> Student
+      else if (k == 'D') {
+        showMsg("NFC later", nullptr, 1000);
+        showModeMenu();
+      }
       continue;
     }
 
@@ -31,6 +62,12 @@ void keypadTick() {
 
     if (tradeMode == MODE_UPDATE_CARD) {
       handleCardKey(k);
+      continue;
+    }
+
+    // if you add MODE_STU_TO_STU:
+    if (tradeMode == MODE_STU_TO_STU) {
+      handleStudentTransferKey(k);
       continue;
     }
   }

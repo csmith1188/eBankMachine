@@ -1,8 +1,4 @@
-// ============================
-// FILE: drop.cpp
-// ============================
 #include "eBankMachine.h"
-
 
 void finishDrop(const char* why) {
   (void)why;
@@ -48,6 +44,8 @@ void startDrop(int count) {
   lcd.setCursor(0, 1);
   lcd.print(F("Done: 0/"));
   lcd.print((int)targetDrops);
+
+  dbgPrintf("Drop start target=%d\n", count);
 }
 
 void dropTick() {
@@ -73,5 +71,6 @@ void dropTick() {
 
     if ((int)droppedCount >= (int)targetDrops) finishDrop("done");
   }
+
   irWasAbove = above;
 }

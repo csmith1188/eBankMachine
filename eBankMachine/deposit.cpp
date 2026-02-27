@@ -1,5 +1,5 @@
 // ============================
-// FILE: deposit.cpp
+// deposit.cpp
 // ============================
 #include "eBankMachine.h"
 
@@ -19,12 +19,70 @@ void depositTick() {
   depLastSampleUs = nowUs;
 
   int v = analogRead(IR_DEP_PIN);
-  bool above = (v > IR_DEP_THRESHOLD);
+  bool broken = (v > IR_DEP_THRESHOLD);  // your "beam broken" condition
 
   unsigned long nowMs = millis();
   bool armed = (nowMs - depStartMs > 100);
 
-  if (armed && above && !depWasAbove && nowMs >= depNextAllowedAt) {
+  if (!armed) {
+    depWasAbove = broken;
+    return;
+  }
+
+  // ===========================
+  // Beam timing + per-pog logging
+  // ===========================
+// ===========================
+// Beam timing + strict window
+// ===========================
+
+if (broken) {
+  if (!depBeamTiming) {
+    depBeamTiming = true;
+    depBeamStartMs = nowMs;
+  }
+} else {
+  // Beam just cleared
+  if (depBeamTiming) {
+    unsigned long dur = nowMs - depBeamStartMs;
+
+    depLastBeamMs = dur;
+    if (dur > depMaxBeamMs) depMaxBeamMs = dur;
+
+    dbgPrintf("Beam %lums\n", dur);
+
+    // -------- STRICT RANGE CHECK --------
+    if (dur < DEP_BEAM_MIN_MS || dur > DEP_BEAM_MAX_MS) {
+      dbgPrintf("TAMPER dur=%lums (range %lu-%lums)\n",
+                dur, DEP_BEAM_MIN_MS, DEP_BEAM_MAX_MS);
+
+      showMsg("TAMPER", "Beam time bad", 2000);
+
+      tradeMode = MODE_SELECT;
+      depState = DEP_ENTER_ID;
+      showModeMenu();
+    } else {
+      // Valid pog
+      if (nowMs >= depNextAllowedAt) {
+        depositCount++;
+        depNextAllowedAt = nowMs + DEP_COOLDOWN_MS;
+
+        lcd.setCursor(7, 1);
+        lcd.print("     ");
+        lcd.setCursor(7, 1);
+        lcd.print(depositCount);
+      }
+    }
+
+    depBeamTiming = false;
+    depBeamStartMs = 0;
+  }
+}
+                                           
+  // ===========================
+  // Normal count logic (rising edge of broken)
+  // ===========================
+  if (broken && !depWasAbove && nowMs >= depNextAllowedAt) {
     depositCount++;
     depNextAllowedAt = nowMs + DEP_COOLDOWN_MS;
 
@@ -33,74 +91,147 @@ void depositTick() {
     lcd.setCursor(7, 1);
     lcd.print(depositCount);
   }
-  depWasAbove = above;
+
+  depWasAbove = broken;
+}
+
+static void stashNameToBuf(const String& name) {
+  memset(idNameBuf, 0, sizeof(idNameBuf));
+  if (!name.length()) return;
+
+  String n = name;
+  n.replace("\r", "");
+  n.replace("\n", "");
+  strncpy(idNameBuf, n.c_str(), sizeof(idNameBuf) - 1);
 }
 
 void handleDepositKey(char k) {
   if (tradeMode != MODE_REAL_TO_DIGI) return;
 
-  if (depState == DEP_ENTER_ID) {
+  // ============================
+  // Confirm ID screen
+  // ============================
+  if (depState == DEP_CONFIRM_ID) {
     if (k == '*') {
-      if (depToId == 0) { tradeMode = MODE_SELECT; showModeMenu(); }
-      else showDepositEnterId();
-      return;
-    }
-    if (k >= '0' && k <= '9') {
-      if (numLen < sizeof(numBuf) - 1) {
-        numBuf[numLen++] = k;
-        numBuf[numLen] = '\0';
-        lcd.setCursor(7 + (numLen - 1), 1);
-        lcd.print(k);
-      }
+      // No -> back to enter ID
+      depState = DEP_ENTER_ID;
+      depToId = 0;
+      showDepositEnterId();
+      clearEntryLine();
       return;
     }
     if (k == '#') {
-      long val = (numLen > 0) ? atol(numBuf) : 0;
-      if (val <= 0) {
-        showMsg("Invalid ID", nullptr, 900);
-        showDepositEnterId();
-      } else {
-        depToId = val;
-        depState = DEP_SCANNING;
-        depositCount = 0;
+      // Yes -> start scanning
+      depState = DEP_SCANNING;
+      depositCount = 0;
 
-        depWasAbove = false;
-        depNextAllowedAt = 0;
-        depStartMs = millis();
-        depLastSampleUs = micros();
+      depWasAbove = false;
+      depNextAllowedAt = 0;
+      depStartMs = millis();
+      depLastSampleUs = micros();
 
-        showDepositScanning();
-      }
-      clearEntryLine();
+      showDepositScanning();
       return;
     }
     return;
   }
 
-  if (depState == DEP_SCANNING) {
+  // ============================
+  // Enter ID mode
+  // ============================
+  if (depState == DEP_ENTER_ID) {
+    if (k == '*') {
+  // If empty, exit to menu. If not empty, clear current entry.
+  if (numLen == 0) {
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+  } else {
+    showDepositEnterId();  // redraw screen
+    clearEntryLine();      // clear buffer + entry area
+  }
+  
+  return;
+}
+
     if (k == '#') {
-      wifiEnsureConnected();
-      showMsg("Sending deposit", "Please wait", 0);
+      long val = (numLen > 0) ? atol(numBuf) : 0;
 
-      int dp = depositCount * DIGIPOGS_PER_POG_DEPOSIT;
-      String resp;
-      int httpc = 0;
-      bool ok = formbarTransfer(KIOSK_ID, (int)depToId, dp, "Pogs -> Digi", KIOSK_ACCOUNT_PIN, resp, httpc);
-
-      if (ok) {
-        char l1[17];
-        snprintf(l1, sizeof(l1), "+%d dpogs", dp);
-        showMsg("Deposit OK", l1, 1800);
-      } else {
-        showMsg("Deposit FAIL", "Check PIN/API", 2500);
-        Serial.print("Deposit HTTP=");
-        Serial.println(httpc);
-        Serial.println(resp);
+      if (val <= 0) {
+        showMsg("Invalid ID", nullptr, 900);
+        showDepositEnterId();
+        clearEntryLine();
+        return;
       }
 
-      tradeMode = MODE_SELECT;
-      showModeMenu();
+      // NEW: validate ID exists first
+      wifiEnsureConnected();
+      if (WiFi.status() != WL_CONNECTED) {
+        showMsg("No WiFi", "Try again", 1500);
+        showDepositEnterId();
+        clearEntryLine();
+        return;
+      }
+
+      showMsg("Checking ID", "Please wait", 0);
+
+      String name;
+      int httpc = 0;
+      bool ok = formbarUserExists((int)val, name, httpc);
+
+      if (!ok) {
+        if (httpc == 404) showMsg("ID Not Found", "Try again", 1600);
+        else showMsg("Bad ID/WiFi", "Try again", 1600);
+        showDepositEnterId();
+        clearEntryLine();
+        return;
+      }
+
+      // ID exists -> confirmation screen
+      depToId = val;
+      stashNameToBuf(name);
+      depState = DEP_CONFIRM_ID;
+      showConfirmId(nullptr, depToId, idNameBuf);
+
+      // Do NOT clearEntryLine() here or it will overwrite the confirm display.
       return;
     }
+
+    return;
+  }
+
+  // ============================
+  // Scanning mode: # sends deposit
+  // ============================
+  if (depState == DEP_SCANNING && k == '#') {
+    wifiEnsureConnected();
+    showMsg("Sending deposit", "Please wait", 0);
+
+    int dp = depositCount * DIGIPOGS_PER_POG_DEPOSIT;
+    String resp;
+    int httpc = 0;
+    FbErr err;
+
+    bool ok = formbarTransferEx(
+      KIOSK_ID,
+      (int)depToId,
+      dp,
+      "Pogs -> Digi",
+      KIOSK_ACCOUNT_PIN,
+      resp,
+      httpc,
+      err);
+
+    if (ok) {
+      char l1[17];
+      snprintf(l1, sizeof(l1), "+%d dpogs", dp);
+      showMsg("Deposit OK", l1, 1800);
+      dbgPrintf("Deposit OK to=%ld dp=%d\n", depToId, dp);
+    } else {
+      showMsg("Deposit FAIL", fbErrMsg(err), 2500);
+      dbgPrintf("Deposit FAIL err=%d http=%d resp=%s\n", (int)err, httpc, resp.c_str());
+    }
+
+    tradeMode = MODE_SELECT;
+    showModeMenu();
   }
 }
