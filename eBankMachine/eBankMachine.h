@@ -256,6 +256,11 @@ void startDrop(int count);
 void finishDrop(const char* why);
 void dropTick();
 
+/* Inventory */
+extern int currencyCount;
+extern const int MAX_CURRENCY_CAPACITY;
+extern const int LOW_STOCK_THRESHOLD;
+
 /* deposit */
 void startDepositFlow();
 void depositTick();

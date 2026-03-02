@@ -50,7 +50,10 @@ void startDrop(int count) {
 
 void dropTick() {
   if (motionState != MS_DROPPING) return;
-  if (limitSwitchPressed) return;
+  if (limitSwitchPressed) {
+    currencyCount -= droppedCount;
+    return;
+  }
 
   unsigned long now = millis();
   if (now - irLastSample < IR_SAMPLE_MS) return;
@@ -69,7 +72,10 @@ void dropTick() {
     lcd.print(F("/"));
     lcd.print((int)targetDrops);
 
-    if ((int)droppedCount >= (int)targetDrops) finishDrop("done");
+    if ((int)droppedCount >= (int)targetDrops) {
+      currencyCount -= droppedCount;
+      finishDrop("done");
+    }
   }
 
   irWasAbove = above;
