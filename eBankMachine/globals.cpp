@@ -111,6 +111,10 @@ unsigned long depLastSampleUs = 0;
 volatile int targetDrops = 0;
 volatile int droppedCount = 0;
 
+int currencyCount = 22;
+const int MAX_CURRENCY_CAPACITY = 22;
+const int LOW_STOCK_THRESHOLD = 6;
+
 MotionState motionState = MS_IDLE;
 
 unsigned long depBeamStartMs = 0;
