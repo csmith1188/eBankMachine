@@ -23,7 +23,7 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     dbgPrintf("WiFi OK IP=%s\n", WiFi.localIP().toString().c_str());
-dbgPrintf("MAC=%s\n", WiFi.macAddress().c_str());
+    dbgPrintf("MAC=%s\n", WiFi.macAddress().c_str());
     setupWebOtaOnce();
   } else {
     dbgPrintf("WiFi FAILED\n");
@@ -43,6 +43,8 @@ void loop() {
   dropTick();
   depositTick();
   cardTick();
+
+  nfcWriteTick();
 
   keypadTick();
 

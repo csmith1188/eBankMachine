@@ -115,9 +115,9 @@ enum TradeMode {
   MODE_DIGI_TO_REAL,
   MODE_REAL_TO_DIGI,
   MODE_UPDATE_CARD,
-  MODE_STU_TO_STU   // NEW
+  MODE_STU_TO_STU,
+  MODE_NFC_WRITE     // NEW
 };
-
 extern TradeMode tradeMode;
 
 extern char numBuf[10];
@@ -158,6 +158,22 @@ extern long stFrom, stPin, stTo, stAmt;
 void startStudentTransferFlow();
 void handleStudentTransferKey(char k);
 
+/* NFC write */
+enum NfcWriteState {
+  NFCW_ENTER_ID,
+  NFCW_WAIT_TAP
+};
+
+extern NfcWriteState nfcwState;
+extern long nfcwId;
+
+void startNfcWriteFlow();
+void handleNfcWriteKey(char k);
+void nfcWriteTick();
+
+/* writes "ID:xxxxx" as NDEF Text record */
+bool ntagWriteIdText(long id);
+
 extern DepositState depState;
 extern long depToId;
 extern int depositCount;
@@ -180,6 +196,9 @@ extern unsigned long irLastSample;
 extern unsigned long nextCountAllowedAt;
 extern bool irWasAbove;
 extern unsigned long dropStartMs;
+
+void showNfcWriteEnterId();
+void showNfcWriteTap();
 
 extern bool depWasAbove;
 extern unsigned long depNextAllowedAt;

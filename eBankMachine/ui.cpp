@@ -11,6 +11,16 @@ void showMsg(const char* line0, const char* line1, unsigned long ms) {
   if (ms) otaDelay(ms);
 }
 
+void showNfcWriteEnterId() { showEntry(F("Write Card ID")); }
+
+void showNfcWriteTap() {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(F("Tap card now"));
+  lcd.setCursor(0,1);
+  lcd.print(F("*=cancel"));
+}
+
 void showModeMenu() {
   lcd.clear();
   lcd.setCursor(0, 0);

@@ -8,6 +8,10 @@ void startDepositFlow() {
   depState = DEP_ENTER_ID;
   depToId = 0;
   depositCount = 0;
+  depBeamTiming = false;
+  depBeamStartMs = 0;
+  depWasAbove = false;
+  depNextAllowedAt = 0;
   showDepositEnterId();
 }
 
@@ -19,7 +23,7 @@ void depositTick() {
   depLastSampleUs = nowUs;
 
   int v = analogRead(IR_DEP_PIN);
-  bool broken = (v > IR_DEP_THRESHOLD);  // your "beam broken" condition
+  bool broken = (v > IR_DEP_THRESHOLD); // beam broken?
 
   unsigned long nowMs = millis();
   bool armed = (nowMs - depStartMs > 100);
@@ -29,40 +33,44 @@ void depositTick() {
     return;
   }
 
-  // ===========================
-  // Beam timing + per-pog logging
-  // ===========================
-// ===========================
-// Beam timing + strict window
-// ===========================
+  // Strict beam timing window
+  if (broken) {
+    if (!depBeamTiming) {
+      depBeamTiming = true;
+      depBeamStartMs = nowMs;
+    }
+  } else {
+    // beam cleared
+    if (depBeamTiming) {
+      unsigned long dur = nowMs - depBeamStartMs;
 
-if (broken) {
-  if (!depBeamTiming) {
-    depBeamTiming = true;
-    depBeamStartMs = nowMs;
-  }
-} else {
-  // Beam just cleared
-  if (depBeamTiming) {
-    unsigned long dur = nowMs - depBeamStartMs;
+      depLastBeamMs = dur;
+      if (dur > depMaxBeamMs) depMaxBeamMs = dur;
 
-    depLastBeamMs = dur;
-    if (dur > depMaxBeamMs) depMaxBeamMs = dur;
+      dbgPrintf("Beam %lums\n", dur);
 
-    dbgPrintf("Beam %lums\n", dur);
+      // Strict range check
+      if (dur < DEP_BEAM_MIN_MS || dur > DEP_BEAM_MAX_MS) {
+        dbgPrintf("TAMPER dur=%lums (range %lu-%lums)\n",
+                  dur, DEP_BEAM_MIN_MS, DEP_BEAM_MAX_MS);
 
-    // -------- STRICT RANGE CHECK --------
-    if (dur < DEP_BEAM_MIN_MS || dur > DEP_BEAM_MAX_MS) {
-      dbgPrintf("TAMPER dur=%lums (range %lu-%lums)\n",
-                dur, DEP_BEAM_MIN_MS, DEP_BEAM_MAX_MS);
+        showMsg("TAMPER", "Beam time bad", 2000);
 
-      showMsg("TAMPER", "Beam time bad", 2000);
+        // Reset deposit scanning state cleanly
+        depBeamTiming = false;
+        depBeamStartMs = 0;
+        depWasAbove = false;
+        depNextAllowedAt = 0;
+        depositCount = 0;
+        depToId = 0;
+        depState = DEP_ENTER_ID;
 
-      tradeMode = MODE_SELECT;
-      depState = DEP_ENTER_ID;
-      showModeMenu();
-    } else {
-      // Valid pog
+        tradeMode = MODE_SELECT;
+        showModeMenu();
+        return;
+      }
+
+      // Valid pog -> count it (cooldown protected)
       if (nowMs >= depNextAllowedAt) {
         depositCount++;
         depNextAllowedAt = nowMs + DEP_COOLDOWN_MS;
@@ -72,27 +80,13 @@ if (broken) {
         lcd.setCursor(7, 1);
         lcd.print(depositCount);
       }
+
+      depBeamTiming = false;
+      depBeamStartMs = 0;
     }
-
-    depBeamTiming = false;
-    depBeamStartMs = 0;
-  }
-}
-                                           
-  // ===========================
-  // Normal count logic (rising edge of broken)
-  // ===========================
-  if (broken && !depWasAbove && nowMs >= depNextAllowedAt) {
-    depositCount++;
-    depNextAllowedAt = nowMs + DEP_COOLDOWN_MS;
-
-    lcd.setCursor(7, 1);
-    lcd.print("     ");
-    lcd.setCursor(7, 1);
-    lcd.print(depositCount);
   }
 
-  depWasAbove = broken;
+  depWasAbove = broken; // keep this updated even if you don't use it now
 }
 
 static void stashNameToBuf(const String& name) {
@@ -113,7 +107,6 @@ void handleDepositKey(char k) {
   // ============================
   if (depState == DEP_CONFIRM_ID) {
     if (k == '*') {
-      // No -> back to enter ID
       depState = DEP_ENTER_ID;
       depToId = 0;
       showDepositEnterId();
@@ -121,12 +114,14 @@ void handleDepositKey(char k) {
       return;
     }
     if (k == '#') {
-      // Yes -> start scanning
       depState = DEP_SCANNING;
       depositCount = 0;
 
       depWasAbove = false;
       depNextAllowedAt = 0;
+      depBeamTiming = false;
+      depBeamStartMs = 0;
+
       depStartMs = millis();
       depLastSampleUs = micros();
 
@@ -140,19 +135,34 @@ void handleDepositKey(char k) {
   // Enter ID mode
   // ============================
   if (depState == DEP_ENTER_ID) {
-    if (k == '*') {
-  // If empty, exit to menu. If not empty, clear current entry.
-  if (numLen == 0) {
-    tradeMode = MODE_SELECT;
-    showModeMenu();
-  } else {
-    showDepositEnterId();  // redraw screen
-    clearEntryLine();      // clear buffer + entry area
-  }
-  
-  return;
-}
 
+    // * = back/clear
+    if (k == '*') {
+      if (numLen == 0) {
+        tradeMode = MODE_SELECT;
+        showModeMenu();
+      } else {
+        showDepositEnterId();
+        clearEntryLine();
+      }
+      return;
+    }
+
+    // digits = type ID
+    if (k >= '0' && k <= '9') {
+      if (numLen < sizeof(numBuf) - 1) {
+        numBuf[numLen++] = k;
+        numBuf[numLen] = '\0';
+
+        lcd.setCursor(7, 1);
+        lcd.print("         ");
+        lcd.setCursor(7, 1);
+        lcd.print(numBuf);
+      }
+      return;
+    }
+
+    // # = confirm ID
     if (k == '#') {
       long val = (numLen > 0) ? atol(numBuf) : 0;
 
@@ -163,7 +173,6 @@ void handleDepositKey(char k) {
         return;
       }
 
-      // NEW: validate ID exists first
       wifiEnsureConnected();
       if (WiFi.status() != WL_CONNECTED) {
         showMsg("No WiFi", "Try again", 1500);
@@ -186,13 +195,10 @@ void handleDepositKey(char k) {
         return;
       }
 
-      // ID exists -> confirmation screen
       depToId = val;
       stashNameToBuf(name);
       depState = DEP_CONFIRM_ID;
       showConfirmId(nullptr, depToId, idNameBuf);
-
-      // Do NOT clearEntryLine() here or it will overwrite the confirm display.
       return;
     }
 
@@ -200,8 +206,22 @@ void handleDepositKey(char k) {
   }
 
   // ============================
-  // Scanning mode: # sends deposit
+  // Scanning mode
   // ============================
+
+  // OPTIONAL but recommended: * cancels scanning
+  if (depState == DEP_SCANNING && k == '*') {
+    depState = DEP_ENTER_ID;
+    depToId = 0;
+    depositCount = 0;
+    depBeamTiming = false;
+    depBeamStartMs = 0;
+    showDepositEnterId();
+    clearEntryLine();
+    return;
+  }
+
+  // # sends deposit
   if (depState == DEP_SCANNING && k == '#') {
     wifiEnsureConnected();
     showMsg("Sending deposit", "Please wait", 0);
@@ -232,6 +252,8 @@ void handleDepositKey(char k) {
     }
 
     tradeMode = MODE_SELECT;
+    depState = DEP_ENTER_ID;
     showModeMenu();
+    return;
   }
 }

@@ -31,7 +31,7 @@ void keypadTick() {
         }
 
         if (tradeMode == MODE_SELECT) showModeMenu();
-        return; // ONLY return when we actually did the IP action
+        return;  // ONLY return when we actually did the IP action
       }
 
       // not 3 yet -> allow normal handling (menu deposit, etc.)
@@ -39,14 +39,17 @@ void keypadTick() {
     }
 
     // Menu mode routing
+    // Menu mode routing
     if (tradeMode == MODE_SELECT) {
-      if (k == 'A') startWithdrawWizard();           // Digi -> Pogs
-      else if (k == 'B') startDepositFlow();         // Pogs -> Digi
-      else if (k == 'C') startStudentTransferFlow(); // Student -> Student
-      else if (k == 'D') {
-        showMsg("NFC later", nullptr, 1000);
-        showModeMenu();
-      }
+      if (k == 'A') startWithdrawWizard();            // Digi -> Pogs
+      else if (k == 'B') startDepositFlow();          // Pogs -> Digi
+      else if (k == 'C') startStudentTransferFlow();  // Student -> Student
+      else if (k == 'D') startNfcWriteFlow();         // NEW: write ID to card
+      continue;
+    }
+
+    if (tradeMode == MODE_NFC_WRITE) {
+      handleNfcWriteKey(k);
       continue;
     }
 

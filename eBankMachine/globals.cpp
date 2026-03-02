@@ -123,6 +123,9 @@ long refundToId = 0;
 int refundDigipogs = 0;
 unsigned long nextRefundTryAt = 0;
 
+NfcWriteState nfcwState = NFCW_ENTER_ID;
+long nfcwId = 0;
+
 int dPressCount = 0;
 unsigned long dWindowStart = 0;
 int cPressCount = 0;
