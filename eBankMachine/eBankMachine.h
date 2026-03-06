@@ -161,11 +161,17 @@ void handleStudentTransferKey(char k);
 /* NFC write */
 enum NfcWriteState {
   NFCW_ENTER_ID,
-  NFCW_WAIT_TAP
+  NFCW_WAIT_HOLD,     // waiting for tag + stable hold
+  NFCW_WRITING,       // performing write
+  NFCW_VERIFY,        // readback verify
+  NFCW_WAIT_REMOVE    // wait until tag removed
 };
 
 extern NfcWriteState nfcwState;
 extern long nfcwId;
+
+extern unsigned long nfcwHoldStartMs;
+extern bool nfcwHoldActive;
 
 void startNfcWriteFlow();
 void handleNfcWriteKey(char k);
@@ -174,9 +180,26 @@ void nfcWriteTick();
 /* writes "ID:xxxxx" as NDEF Text record */
 bool ntagWriteIdText(long id);
 
+bool ntagWriteFullCard(const String& website, const String& name, long formbarId, long formbarPin);
+
+/* reads first NTAG user pages and looks for ASCII "ID:####"; returns true if found */
+bool ntagTryReadIdText(long& outId);
+
 extern DepositState depState;
 extern long depToId;
 extern int depositCount;
+
+/* Inventory */
+extern int currencyCount;
+extern const int MAX_CURRENCY_CAPACITY;
+extern const int LOW_STOCK_THRESHOLD;
+
+// Debug: drop timing
+extern bool dbgDropTimingEnabled;
+extern bool dbgDropAllAutoStop;
+extern unsigned long dbgDropLastEventMs;
+extern unsigned long dbgDropSumIntervalsMs;
+extern unsigned long dbgDropIntervals;
 
 /* temp display buffer for user name during ID confirmation */
 extern char idNameBuf[17];

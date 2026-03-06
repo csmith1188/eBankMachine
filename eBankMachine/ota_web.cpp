@@ -51,15 +51,11 @@ static const char* serverIndex =
   "});"
   "</script>";
 
-static bool checkOtaPassword() {
-  if (!server.hasArg("otapass")) return false;
-  return server.arg("otapass") == OTA_PASSWORD;
-}
+static bool otaUploadAuthed = false;
 
 void otaDelay(unsigned long ms) {
   unsigned long start = millis();
   while (millis() - start < ms) {
-    server.handleClient();
     delay(1);
   }
 }
@@ -85,19 +81,217 @@ void setupWebOtaOnce() {
   });
 
   // ===== Debug endpoints (same port 80) =====
-  server.on("/debug.txt", HTTP_GET, []() {
-    server.send(200, "text/plain", __dbgTextForWeb());
-  });
+server.on("/debug.txt", HTTP_GET, []() {
+  String t = __dbgTextForWeb();
+
+  t += "\n\nINVENTORY\n";
+  t += "Inventory: ";
+  t += String(currencyCount);
+  t += " / ";
+  t += String(MAX_CURRENCY_CAPACITY);
+  t += "\n";
+
+  t += "LowStock: ";
+  t += (currencyCount <= LOW_STOCK_THRESHOLD) ? "YES" : "NO";
+  t += "\n";
+
+  t += "\nDROP DEBUG\n";
+  t += "DroppedCount: ";
+  t += String(droppedCount);
+  t += "\n";
+
+  t += "TargetDrops: ";
+  t += String(targetDrops);
+  t += "\n";
+
+  t += "MotionState: ";
+  t += String((int)motionState);
+  t += "\n";
+
+  server.send(200, "text/plain", t);
+});
 
   server.on("/debug/clear", HTTP_POST, []() {
     dbgClear();
-    server.send(200, "text/plain", "cleared");
+    server.sendHeader("Location", "/debug");
+    server.send(303);
   });
 
   server.on("/reboot", HTTP_POST, []() {
     server.send(200, "text/plain", "rebooting");
     delay(150);
     ESP.restart();
+  });
+
+  // Servo UP for 10 seconds
+  server.on("/debug/up10", HTTP_POST, []() {
+    if (motionState != MS_IDLE) {
+      server.send(409, "text/plain", "busy");
+      return;
+    }
+
+    dbgPrintf("WEB: servo UP 10s\n");
+    showMsg("Servo UP", "10 seconds", 600);
+
+    servoAttach();
+    myServo.writeMicroseconds(SERVO_UP_US);
+
+    unsigned long start = millis();
+    while (millis() - start < 10000UL) {
+      delay(1);
+    }
+
+    servoStopDetach();
+
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+
+    server.sendHeader("Location", "/debug");
+    server.send(303);
+  });
+
+  // Drop exactly 1 pog
+  server.on("/debug/drop1", HTTP_POST, []() {
+    if (motionState != MS_IDLE) {
+      server.send(409, "text/plain", "busy");
+      return;
+    }
+
+    dbgPrintf("WEB: drop 1 requested\n");
+    showMsg("WEB DROP 1", "Starting...", 600);
+
+    startDrop(1);
+
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+
+    server.sendHeader("Location", "/debug");
+    server.send(303);
+  });
+
+  // Drop a huge count (effectively "all")
+  server.on("/debug/dropall", HTTP_POST, []() {
+    if (motionState != MS_IDLE) {
+      server.send(409, "text/plain", "busy");
+      return;
+    }
+
+    dbgPrintf("WEB: drop all requested (timed)\n");
+    showMsg("WEB DROP ALL", "Timing...", 600);
+
+    dbgDropTimingEnabled = true;
+    dbgDropAllAutoStop = true;
+
+    startDrop(999);  // big number; auto-stop will end it when hopper is done
+
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+
+    server.sendHeader("Location", "/debug");
+    server.send(303);
+  });
+
+  // Sample IR sensors for 10 seconds, log values, then return to normal menu
+  server.on("/debug/irscan10", HTTP_POST, []() {
+    if (motionState != MS_IDLE) {
+      server.send(409, "text/plain", "busy");
+      return;
+    }
+
+    dbgPrintf("WEB: IR scan 10s start (thr drop=%d dep=%d)\n", IR_DROP_THRESHOLD, IR_DEP_THRESHOLD);
+    showMsg("IR scan", "10s...", 0);
+
+    unsigned long startMs = millis();
+    unsigned long lastLog = 0;
+    int dropMin = 4096, dropMax = 0;
+    int depMin = 4096, depMax = 0;
+    long dropSum = 0, depSum = 0;
+    long samples = 0;
+
+    while (millis() - startMs < 10000UL) {
+      int vd = analogRead(IR_DROP_PIN);
+      int vp = analogRead(IR_DEP_PIN);
+
+      if (vd < dropMin) dropMin = vd;
+      if (vd > dropMax) dropMax = vd;
+      if (vp < depMin) depMin = vp;
+      if (vp > depMax) depMax = vp;
+
+      dropSum += vd;
+      depSum += vp;
+      samples++;
+
+      unsigned long now = millis();
+      if (now - lastLog >= 250UL) {
+        lastLog = now;
+        dbgPrintf("IR live drop=%d dep=%d\n", vd, vp);
+      }
+
+      otaDelay(25);
+    }
+
+    long dropAvg = (samples > 0) ? (dropSum / samples) : 0;
+    long depAvg = (samples > 0) ? (depSum / samples) : 0;
+
+    dbgPrintf("WEB: IR scan done samples=%ld drop(min/avg/max)=%d/%ld/%d dep(min/avg/max)=%d/%ld/%d\n",
+              samples, dropMin, dropAvg, dropMax, depMin, depAvg, depMax);
+
+    showMsg("IR scan done", "Back to menu", 900);
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+
+    server.sendHeader("Location", "/debug");
+    server.send(303);
+  });
+
+  // Look for NFC for 10 seconds; show/log ID:#### if found; back out on timeout
+  server.on("/debug/nfcid10", HTTP_POST, []() {
+    if (motionState != MS_IDLE) {
+      server.send(409, "text/plain", "busy");
+      return;
+    }
+
+    dbgPrintf("WEB: NFC ID scan 10s start\n");
+    showMsg("Tap NFC card", "10s timeout", 0);
+
+    unsigned long startMs = millis();
+    bool found = false;
+    long id = 0;
+
+    while (millis() - startMs < 10000UL) {
+      uint8_t uid[8];
+      uint8_t uidLen = 0;
+
+      if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLen, PN532_TIMEOUT_MS)) {
+        long parsed = 0;
+        if (ntagTryReadIdText(parsed)) {
+          id = parsed;
+          found = true;
+          break;
+        } else {
+          dbgPrintf("NFC: tag present but no ID:#### found\n");
+          showMsg("No ID on tag", "Try another", 1200);
+        }
+      }
+
+      otaDelay(50);
+    }
+
+    if (found) {
+      char line1[16];
+      snprintf(line1, sizeof(line1), "ID:%ld", id);
+      dbgPrintf("WEB: NFC found %s\n", line1);
+      showMsg("Card ID", line1, 2000);
+    } else {
+      dbgPrintf("WEB: NFC scan timeout (no tag)\n");
+      showMsg("NFC timeout", "Back to menu", 1200);
+    }
+
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+
+    server.sendHeader("Location", "/debug");
+    server.send(303);
   });
 
   server.on("/debug", HTTP_GET, []() {
@@ -108,6 +302,16 @@ void setupWebOtaOnce() {
       "<h3>Debug Log</h3>"
       "<form method='POST' action='/debug/clear' style='display:inline;'>"
       "<button type='submit'>Clear</button></form> "
+      "<form method='POST' action='/debug/up10' style='display:inline;'>"
+      "<button type='submit'>UP 10s</button></form> "
+      "<form method='POST' action='/debug/drop1' style='display:inline;'>"
+      "<button type='submit'>DROP 1</button></form> "
+      "<form method='POST' action='/debug/dropall' style='display:inline;'>"
+      "<button type='submit'>DROP ALL</button></form> "
+      "<form method='POST' action='/debug/irscan10' style='display:inline;'>"
+      "<button type='submit'>IR scan 10s</button></form> "
+      "<form method='POST' action='/debug/nfcid10' style='display:inline;'>"
+      "<button type='submit'>NFC ID 10s</button></form> "
       "<form method='POST' action='/reboot' style='display:inline;'>"
       "<button type='submit'>Reboot</button></form>"
       "<pre id='log' style='white-space:pre-wrap;'></pre>"
@@ -119,6 +323,7 @@ void setupWebOtaOnce() {
       "setInterval(tick,1000); tick();"
       "</script>"
       "</body></html>";
+
     server.send(200, "text/html", page);
   });
 
@@ -134,16 +339,19 @@ void setupWebOtaOnce() {
     []() {
       HTTPUpload& upload = server.upload();
 
-      if (!checkOtaPassword()) {
-        if (upload.status == UPLOAD_FILE_START) dbgPrintf("OTA denied: bad password\n");
-        if (Update.isRunning()) Update.abort();
-        return;
-      }
-
       if (upload.status == UPLOAD_FILE_START) {
+        otaUploadAuthed = server.hasArg("otapass") && (server.arg("otapass") == OTA_PASSWORD);
+        if (!otaUploadAuthed) {
+          dbgPrintf("OTA denied: bad password\n");
+          return;
+        }
+
         dbgPrintf("Update: %s\n", upload.filename.c_str());
         servoStopDetach();
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
+      } else if (!otaUploadAuthed) {
+        if (Update.isRunning()) Update.abort();
+        return;
       } else if (upload.status == UPLOAD_FILE_WRITE) {
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) Update.printError(Serial);
       } else if (upload.status == UPLOAD_FILE_END) {

@@ -3,11 +3,11 @@
 const char* WIFI_SSID = "robonet";
 const char* WIFI_PASS = "formDog220!";
 
-const char* TRANSFER_URL = "https://formbeta.yorktechapps.com/api/digipogs/transfer";
+const char* TRANSFER_URL = "https://formbar.yorktechapps.com/api/digipogs/transfer";
 const char* API_KEY = "1404409d473c2bac59b0eb8564a3dfb76b07b2d794e5de4fc0183afdf3e3b3d0";
 
 // NEW: user lookup base (append numeric id)
-const char* USER_LOOKUP_BASE = "https://formbeta.yorktechapps.com/api/user/";
+const char* USER_LOOKUP_BASE = "https://formbar.yorktechapps.com/api/user/";
 
 const int KIOSK_ID = 28;
 const int KIOSK_ACCOUNT_PIN = 1234;

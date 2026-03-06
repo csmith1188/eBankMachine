@@ -86,6 +86,9 @@ int depositCount = 0;
 /* name buffer for confirmation screens */
 char idNameBuf[17] = { 0 };
 
+unsigned long nfcwHoldStartMs = 0;
+bool nfcwHoldActive = false;
+
 int lastReading = LOW;
 int stableState = LOW;
 unsigned long lastChange = 0;
@@ -108,6 +111,12 @@ unsigned long depNextAllowedAt = 0;
 unsigned long depStartMs = 0;
 unsigned long depLastSampleUs = 0;
 
+bool dbgDropTimingEnabled = false;
+bool dbgDropAllAutoStop = false;
+unsigned long dbgDropLastEventMs = 0;
+unsigned long dbgDropSumIntervalsMs = 0;
+unsigned long dbgDropIntervals = 0;
+
 volatile int targetDrops = 0;
 volatile int droppedCount = 0;
 
@@ -125,6 +134,10 @@ unsigned long nextRefundTryAt = 0;
 
 NfcWriteState nfcwState = NFCW_ENTER_ID;
 long nfcwId = 0;
+
+int currencyCount = 22;
+const int MAX_CURRENCY_CAPACITY = 22;
+const int LOW_STOCK_THRESHOLD = 5;
 
 int dPressCount = 0;
 unsigned long dWindowStart = 0;

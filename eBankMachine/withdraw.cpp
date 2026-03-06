@@ -72,29 +72,29 @@ void handleWithdrawKey(char k) {
   }
 
   // Cancel / clear
-if (k == '*') {
-  // If we're on a confirm screen, * means "No / Cancel"
-  if (wzState == WZ_CONFIRM_FROM) {
-    wzState = WZ_ENTER_FROM;
-    showEntry(F("Enter FROM ID"));
-    return;
-  }
-  if (wzState == WZ_CONFIRM) {
-    tradeMode = MODE_SELECT;
-    showModeMenu();
-    return;
-  }
+  if (k == '*') {
+    // If we're on a confirm screen, * means "No / Cancel"
+    if (wzState == WZ_CONFIRM_FROM) {
+      wzState = WZ_ENTER_FROM;
+      showEntry(F("Enter FROM ID"));
+      return;
+    }
+    if (wzState == WZ_CONFIRM) {
+      tradeMode = MODE_SELECT;
+      showModeMenu();
+      return;
+    }
 
-  // On entry screens:
-  // If field is empty, go back to menu. Otherwise clear the field.
-  if (numLen == 0) {
-    tradeMode = MODE_SELECT;
-    showModeMenu();
-  } else {
-    clearEntryLine();
+    // On entry screens:
+    // If field is empty, go back to menu. Otherwise clear the field.
+    if (numLen == 0) {
+      tradeMode = MODE_SELECT;
+      showModeMenu();
+    } else {
+      clearEntryLine();
+    }
+    return;
   }
-  return;
-}
 
   // CONFIRM FROM ID screen
   if (wzState == WZ_CONFIRM_FROM) {
@@ -200,8 +200,21 @@ if (k == '*') {
       if (val <= 0) {
         showMsg("Invalid POGS", nullptr, 900);
         showEntry(F("Enter POGS"));
-      } else {
+      }
+      else {
         wzPogs = val;
+
+        // Warn if estimated stock is lower than requested amount
+        if (currencyCount < wzPogs) {
+          char l0[17];
+          char l1[17];
+
+          snprintf(l0, sizeof(l0), "Low Stock Warn");
+          snprintf(l1, sizeof(l1), "%d left, want %ld", currencyCount, wzPogs);
+
+          showMsg(l0, l1, 1800);
+        }
+
         wzState = WZ_CONFIRM;
         showConfirmWithdraw(wzPogs);
       }

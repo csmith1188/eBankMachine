@@ -50,7 +50,14 @@ void IR_Calibration() {
 void handleLimitPressed() {
   dbgPrintf("LIMIT pressed\n");
 
-  if (motionState == MS_DROPPING) {
+if (motionState == MS_DROPPING) {
+
+  // Only allow refunds during real DIGI -> POGS withdraw mode (not debug drops)
+  bool allowRefund =
+      (tradeMode == MODE_DIGI_TO_REAL) &&
+      !dbgDropAllAutoStop;   // extra safety: block "/debug/dropall"
+
+  if (allowRefund) {
     int remainingPogs = (int)targetDrops - (int)droppedCount;
     if (remainingPogs < 0) remainingPogs = 0;
 
@@ -67,17 +74,22 @@ void handleLimitPressed() {
       refundToId = 0;
       refundDigipogs = 0;
     }
-
-    servoStopDetach();
-    motionState = MS_IDLE;
-    targetDrops = 0;
-    droppedCount = 0;
+  } else {
+    // Debug/manual drops should never create refunds
+    refundPending = false;
+    refundToId = 0;
+    refundDigipogs = 0;
   }
 
-  showMsg("LIMIT HIT", "UNJAM UP 35s", 0);
+  servoStopDetach();
+  motionState = MS_IDLE;
+  targetDrops = 0;
+  droppedCount = 0;
+}
+  showMsg("LIMIT HIT", "UNJAM UP 40s", 0);
   servoAttach();
   myServo.writeMicroseconds(SERVO_UP_US);
-  otaDelay(35000);
+  otaDelay(40000);
   servoStopDetach();
 
   wzState = WZ_ENTER_FROM;
