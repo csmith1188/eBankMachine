@@ -83,6 +83,7 @@ if (motionState == MS_DROPPING) {
 
   servoStopDetach();
   motionState = MS_IDLE;
+  currencyCount = MAX_CURRENCY_CAPACITY;
   targetDrops = 0;
   droppedCount = 0;
 }

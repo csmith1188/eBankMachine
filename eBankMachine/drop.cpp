@@ -77,7 +77,6 @@ void dropTick() {
 
   if (limitSwitchPressed) {
     finishDrop("limit");
-    currencyCount = MAX_CURRENCY_CAPACITY;
     return;
   }
 

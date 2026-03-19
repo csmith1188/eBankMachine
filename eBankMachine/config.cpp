@@ -28,7 +28,7 @@ const unsigned long DEP_COOLDOWN_MS = 150;
 const int CALIB_READS = 80;
 
 const unsigned long DEP_BEAM_MAX_BLOCK_MS = 500;
-const unsigned long DEP_BEAM_MIN_MS = 10;
+const unsigned long DEP_BEAM_MIN_MS = 2;
 const unsigned long DEP_BEAM_MAX_MS = 30;
 
 const unsigned long D_WINDOW_MS = 5000;
