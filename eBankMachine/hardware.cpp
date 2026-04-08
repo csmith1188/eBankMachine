@@ -1,6 +1,3 @@
-// ============================
-// FILE: hardware.cpp
-// ============================
 #include "eBankMachine.h"
 
 static bool servoAttached = false;
@@ -39,18 +36,28 @@ void IR_Calibration() {
   showMsg("IR Calibrating", "Keep chutes clear", 0);
 
   calibrateIRPin(IR_DROP_PIN, IR_DROP_THRESHOLD);
-  calibrateIRPin(IR_DEP_PIN,  IR_DEP_THRESHOLD);
+  calibrateIRPin(IR_DEP_PIN, IR_DEP_THRESHOLD);
 
   irLastSample = millis();
   irWasAbove = false;
 
   depLastSampleUs = micros();
   depWasAbove = false;
+
+  dbgPrintf("IR thr drop=%d dep=%d\n", IR_DROP_THRESHOLD, IR_DEP_THRESHOLD);
 }
 
 void handleLimitPressed() {
-  // If we were dropping, compute remaining refund
-  if (motionState == MS_DROPPING) {
+  dbgPrintf("LIMIT pressed\n");
+
+if (motionState == MS_DROPPING) {
+
+  // Only allow refunds during real DIGI -> POGS withdraw mode (not debug drops)
+  bool allowRefund =
+      (tradeMode == MODE_DIGI_TO_REAL) &&
+      !dbgDropAllAutoStop;   // extra safety: block "/debug/dropall"
+
+  if (allowRefund) {
     int remainingPogs = (int)targetDrops - (int)droppedCount;
     if (remainingPogs < 0) remainingPogs = 0;
 
@@ -61,22 +68,29 @@ void handleLimitPressed() {
       refundToId = wzFrom;
       refundDigipogs = remainingDpogs;
       nextRefundTryAt = millis();
+      dbgPrintf("Refund pending to=%ld dpogs=%d\n", refundToId, refundDigipogs);
     } else {
       refundPending = false;
       refundToId = 0;
       refundDigipogs = 0;
     }
-
-    servoStopDetach();
-    motionState = MS_IDLE;
-    targetDrops = 0;
-    droppedCount = 0;
+  } else {
+    // Debug/manual drops should never create refunds
+    refundPending = false;
+    refundToId = 0;
+    refundDigipogs = 0;
   }
 
-  showMsg("LIMIT HIT", "UNJAM UP 20s", 0);
+  servoStopDetach();
+  motionState = MS_IDLE;
+  currencyCount = MAX_CURRENCY_CAPACITY;
+  targetDrops = 0;
+  droppedCount = 0;
+}
+  showMsg("LIMIT HIT", "UNJAM UP 40s", 0);
   servoAttach();
   myServo.writeMicroseconds(SERVO_UP_US);
-  otaDelay(20000);
+  otaDelay(40000);
   servoStopDetach();
 
   wzState = WZ_ENTER_FROM;
@@ -86,10 +100,8 @@ void handleLimitPressed() {
   if (refundPending) {
     showMsg("Refunding...", "Please wait", 0);
     bool sent = trySendRefundNow();
-
-    if (sent) {
-      showMsg("Refund SENT", "OK", 1500);
-    } else {
+    if (sent) showMsg("Refund SENT", "OK", 1500);
+    else {
       nextRefundTryAt = millis() + REFUND_RETRY_MS;
       showMsg("Refund FAILED", "Auto retry...", 1800);
     }
@@ -143,15 +155,11 @@ void hardwareInit() {
   lcd.backlight();
   showMsg("BOOTING...", nullptr, 500);
 
-  // PN532
   nfc.begin();
-  uint32_t versiondata = nfc.getFirmwareVersion();
-  if (versiondata) nfc.SAMConfig();
+  uint32_t v = nfc.getFirmwareVersion();
+  if (v) nfc.SAMConfig();
 
   IR_Calibration();
 
-  // If switch is already pressed at boot, auto unjam once
-  if (limitSwitchPressed) {
-    handleLimitPressed();
-  }
+  if (limitSwitchPressed) handleLimitPressed();
 }
