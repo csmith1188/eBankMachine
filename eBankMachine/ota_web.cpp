@@ -169,6 +169,25 @@ server.on("/debug.txt", HTTP_GET, []() {
     server.send(303);
   });
 
+  server.on("/debug/resetinventory", HTTP_POST, []() {
+    if (motionState != MS_IDLE) {
+      server.send(409, "text/plain", "busy");
+      return;
+    }
+
+    dbgPrintf("WEB: reset inventory requested\n")
+    showMsg("RESET INVENTORY", "Starting...", 600)
+
+    currencyCount = MAX_CURRENCY_CAPACITY
+
+    tradeMode = MODE_SELECT;
+    showModeMenu();
+
+    server.sendHeader("Location", "/debug");
+    server.send(303);
+
+  })
+
   // Drop a huge count (effectively "all")
   server.on("/debug/dropall", HTTP_POST, []() {
     if (motionState != MS_IDLE) {
@@ -306,6 +325,8 @@ server.on("/debug.txt", HTTP_GET, []() {
       "<button type='submit'>UP 10s</button></form> "
       "<form method='POST' action='/debug/drop1' style='display:inline;'>"
       "<button type='submit'>DROP 1</button></form> "
+      "<form method='POST' action='/debug/resetinventory' style='display:inline;'>"
+      "<button type='submit'>RESET INVENTORY</button></form> "
       "<form method='POST' action='/debug/dropall' style='display:inline;'>"
       "<button type='submit'>DROP ALL</button></form> "
       "<form method='POST' action='/debug/irscan10' style='display:inline;'>"
