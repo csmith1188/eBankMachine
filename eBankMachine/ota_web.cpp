@@ -173,12 +173,12 @@ server.on("/debug.txt", HTTP_GET, []() {
     if (motionState != MS_IDLE) {
       server.send(409, "text/plain", "busy");
       return;
-    }
+    };
 
-    dbgPrintf("WEB: reset inventory requested\n")
-    showMsg("RESET INVENTORY", "Starting...", 600)
+    dbgPrintf("WEB: reset inventory requested\n");
+    showMsg("RESET INVENTORY", "Starting...", 600);
 
-    currencyCount = MAX_CURRENCY_CAPACITY
+    currencyCount = MAX_CURRENCY_CAPACITY;
 
     tradeMode = MODE_SELECT;
     showModeMenu();
@@ -186,7 +186,7 @@ server.on("/debug.txt", HTTP_GET, []() {
     server.sendHeader("Location", "/debug");
     server.send(303);
 
-  })
+  });
 
   // Drop a huge count (effectively "all")
   server.on("/debug/dropall", HTTP_POST, []() {
