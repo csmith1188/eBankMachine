@@ -1,22 +1,23 @@
 #include "eBankMachine.h"
 
-#include "eBankMachine.h"
-
 void keypadTick() {
-  static bool waitForRelease = false;
+  static char waitKey = NO_KEY;
+  static unsigned long waitUntil = 0;
   static unsigned long lockoutUntil = 0;
 
   keypad.getKeys();
 
-  bool anyDown = false;
+  unsigned long now = millis();
   char pressedKey = NO_KEY;
   int newlyPressed = 0;
+  bool waitKeyDown = false;
 
   for (int i = 0; i < LIST_MAX; i++) {
     KeyState s = keypad.key[i].kstate;
+    char c = keypad.key[i].kchar;
 
-    if (s == PRESSED || s == HOLD) {
-      anyDown = true;
+    if ((s == PRESSED || s == HOLD) && waitKey != NO_KEY && c == waitKey) {
+      waitKeyDown = true;
     }
 
     if (keypad.key[i].stateChanged && s == PRESSED) {
@@ -25,24 +26,35 @@ void keypadTick() {
     }
   }
 
-  // reset when all keys are released
-  if (!anyDown) {
-    waitForRelease = false;
+  // Only wait for the key we just accepted. A ghost/stuck line that
+  // never goes idle used to block the whole keypad after the first press.
+  if (waitKey != NO_KEY) {
+    if (!waitKeyDown || (long)(now - waitUntil) >= 0) {
+      waitKey = NO_KEY;
+    } else {
+      return;
+    }
   }
 
-  unsigned long now = millis();
-
-  // ignore presses while locked out or until full release
-  if (waitForRelease) return;
   if (now < lockoutUntil) return;
 
-  // if scan says multiple keys were newly pressed at once, ignore that scan
+  if (newlyPressed > 1) {
+    static unsigned long lastMultiLog = 0;
+    if (now - lastMultiLog > 1000) {
+      lastMultiLog = now;
+      dbgPrintf("KEYPAD ignore multi=%d\n", newlyPressed);
+    }
+    return;
+  }
+
   if (newlyPressed != 1) return;
 
-  waitForRelease = true;
+  waitKey = pressedKey;
+  waitUntil = now + 400;
   lockoutUntil = now + 80;
 
   char k = pressedKey;
+  dbgPrintf("KEY %c\n", k);
 
   // B x3 -> show IP
   if (k == 'B') {

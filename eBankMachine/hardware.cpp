@@ -147,6 +147,15 @@ void hardwareInit() {
   prevLimitSwitchPressed = limitSwitchPressed;
 
   keypad.setDebounceTime(15);
+  keypad.getKeys();
+  delay(20);
+  keypad.getKeys();
+  for (int i = 0; i < LIST_MAX; i++) {
+    KeyState s = keypad.key[i].kstate;
+    if (s == PRESSED || s == HOLD) {
+      dbgPrintf("KEYPAD held at boot: %c\n", keypad.key[i].kchar);
+    }
+  }
 
   Wire.begin(SDA_PIN, SCL_PIN);
   delay(40);
