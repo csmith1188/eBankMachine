@@ -317,3 +317,20 @@ void keypadTick();
 
 /* refund */
 void refundTick();
+
+class LCDWrapper {
+public:
+    void begin();
+    void clear();
+    void setCursor(uint8_t col, uint8_t row);
+
+    void print(char c);
+    void print(const char* text);
+    void print(const String& text);
+    void print(const __FlashStringHelper* text);
+    void print(int value);
+    void print(long value);
+
+private:
+    bool usingLCD = false;
+};
