@@ -4,13 +4,13 @@ const char* WIFI_SSID = "robonet";
 const char* WIFI_PASS = "formDog220!";
 
 const char* TRANSFER_URL = "https://formbar.yorktechapps.com/api/digipogs/transfer";
-const char* API_KEY = "1404409d473c2bac59b0eb8564a3dfb76b07b2d794e5de4fc0183afdf3e3b3d0";
+const char* API_KEY = "7464fcaa5a799a7dd498ae63ee3fcfcc0a3afb07ce865d659d34e0eca6954c9e";
 
 // NEW: user lookup base (append numeric id)
 const char* USER_LOOKUP_BASE = "https://formbar.yorktechapps.com/api/user/";
 
-const int KIOSK_ID = 28;
-const int KIOSK_ACCOUNT_PIN = 1234;
+const int KIOSK_ID = 1;
+const int KIOSK_ACCOUNT_PIN = 1834;
 
 const int DIGIPOGS_PER_POG_WITHDRAW = 110;
 const int DIGIPOGS_PER_POG_DEPOSIT = 90;
@@ -38,4 +38,4 @@ const unsigned long REFUND_RETRY_MS = 8000;
 
 int neutral_us = 1403;
 int SERVO_DOWN_US = 1403 + 250;
-int SERVO_UP_US = 1403 - 250;
+int SERVO_UP_US = 1500;
