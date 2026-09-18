@@ -1,116 +1,121 @@
-#include "eBankMachine.h"
+#include "keypad_router.h"
+
+#include "app.h"
+#include "config.h"
+#include "debug_log.h"
+#include "deposit.h"
+#include "hardware.h"
+#include "net.h"
+#include "nfc.h"
+#include "student_transfer.h"
+#include "ui.h"
+#include "web.h"
+#include "withdraw.h"
 
 void keypadTick() {
   static char waitKey = NO_KEY;
-  static unsigned long waitUntil = 0;
-  static unsigned long lockoutUntil = 0;
+  static uint32_t waitUntil = 0;
+  static uint32_t lockoutUntil = 0;
+  static uint8_t bCount = 0;
+  static uint32_t bWindow = 0;
+  static bool menuBPending = false;
 
   keypad.getKeys();
+  const uint32_t now = millis();
 
-  unsigned long now = millis();
+  if (menuBPending && appMode() == TradeMode::Select && (now - bWindow) > kMenuBChordMs) {
+    menuBPending = false;
+    const uint8_t n = bCount;
+    bCount = 0;
+    if (n == 1) startDepositFlow();
+  }
+
+  if (hardwareRecovering() || webBusy()) return;
+
   char pressedKey = NO_KEY;
   int newlyPressed = 0;
   bool waitKeyDown = false;
 
   for (int i = 0; i < LIST_MAX; i++) {
-    KeyState s = keypad.key[i].kstate;
-    char c = keypad.key[i].kchar;
-
-    if ((s == PRESSED || s == HOLD) && waitKey != NO_KEY && c == waitKey) {
-      waitKeyDown = true;
-    }
-
+    const KeyState s = keypad.key[i].kstate;
+    const char c = keypad.key[i].kchar;
+    if ((s == PRESSED || s == HOLD) && waitKey != NO_KEY && c == waitKey) waitKeyDown = true;
     if (keypad.key[i].stateChanged && s == PRESSED) {
       newlyPressed++;
       pressedKey = keypad.key[i].kchar;
     }
   }
 
-  // Only wait for the key we just accepted. A ghost/stuck line that
-  // never goes idle used to block the whole keypad after the first press.
   if (waitKey != NO_KEY) {
-    if (!waitKeyDown || (long)(now - waitUntil) >= 0) {
-      waitKey = NO_KEY;
-    } else {
-      return;
-    }
+    if (!waitKeyDown || (int32_t)(now - waitUntil) >= 0) waitKey = NO_KEY;
+    else return;
   }
 
-  if (now < lockoutUntil) return;
-
+  if ((int32_t)(now - lockoutUntil) < 0) return;
   if (newlyPressed > 1) {
-    static unsigned long lastMultiLog = 0;
+    static uint32_t lastMultiLog = 0;
     if (now - lastMultiLog > 1000) {
       lastMultiLog = now;
       dbgPrintf("KEYPAD ignore multi=%d\n", newlyPressed);
     }
     return;
   }
-
   if (newlyPressed != 1) return;
 
   waitKey = pressedKey;
-  waitUntil = now + 400;
-  lockoutUntil = now + 80;
+  waitUntil = now + kKeyWaitMs;
+  lockoutUntil = now + kKeyLockoutMs;
 
-  char k = pressedKey;
+  const char k = pressedKey;
   dbgPrintf("KEY %c\n", k);
 
-  // B x3 -> show IP
   if (k == 'B') {
-    if (bPressCount == 0 || (now - bWindowStart) > D_WINDOW_MS) {
-      bPressCount = 0;
-      bWindowStart = now;
-    }
-
-    bPressCount++;
-
-    if (bPressCount >= 3) {
-      bPressCount = 0;
-      bWindowStart = 0;
-
-      if (WiFi.status() == WL_CONNECTED) {
-        String ip = WiFi.localIP().toString();
-        showMsg("IP Address:", ip.c_str(), 3000);
-      } else {
-        showMsg("WiFi Not", "Connected", 2000);
+    if (appMode() == TradeMode::Select) {
+      if (bCount == 0 || (now - bWindow) > kMenuBChordMs) {
+        bCount = 0;
+        bWindow = now;
       }
-
-      if (tradeMode == MODE_SELECT) showModeMenu();
+      bCount++;
+      bWindow = now;
+      menuBPending = true;
+      if (bCount >= 3) {
+        menuBPending = false;
+        bCount = 0;
+        netShowIp();
+        uiMenu();
+      }
       return;
     }
+
+    static uint8_t flowB = 0;
+    static uint32_t flowBAt = 0;
+    if (chordCount('B', k, 3, kDebugChordMs, flowB, flowBAt, now)) {
+      netShowIp();
+      if (appMode() == TradeMode::Select) uiMenu();
+      return;
+    }
+  } else {
+    menuBPending = false;
+    bCount = 0;
   }
 
-  if (tradeMode == MODE_SELECT) {
-    if (k == 'A') startWithdrawWizard();
-    else if (k == 'B') startDepositFlow();
-    else if (k == 'C') startStudentTransferFlow();
-    else if (k == 'D') startNfcWriteFlow();
-    return;
-  }
-
-  if (tradeMode == MODE_NFC_WRITE) {
-    handleNfcWriteKey(k);
-    return;
-  }
-
-  if (tradeMode == MODE_DIGI_TO_REAL) {
-    handleWithdrawKey(k);
-    return;
-  }
-
-  if (tradeMode == MODE_REAL_TO_DIGI) {
-    handleDepositKey(k);
-    return;
-  }
-
-  if (tradeMode == MODE_UPDATE_CARD) {
-    handleCardKey(k);
-    return;
-  }
-
-  if (tradeMode == MODE_STU_TO_STU) {
-    handleStudentTransferKey(k);
-    return;
+  switch (appMode()) {
+    case TradeMode::Select:
+      if (k == 'A') startWithdrawWizard();
+      else if (k == 'C') startStudentTransferFlow();
+      else if (k == 'D') startNfcWriteFlow();
+      break;
+    case TradeMode::NfcWrite:
+      handleNfcWriteKey(k);
+      break;
+    case TradeMode::Withdraw:
+      handleWithdrawKey(k);
+      break;
+    case TradeMode::Deposit:
+      handleDepositKey(k);
+      break;
+    case TradeMode::StudentTransfer:
+      handleStudentTransferKey(k);
+      break;
   }
 }

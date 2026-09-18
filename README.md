@@ -22,7 +22,6 @@ Install these from the Arduino Library Manager unless you already have them:
 - `Keypad`
 - `ESP32Servo`
 - `Adafruit PN532`
-- `Crypto`
 
 The ESP32 core provides these automatically:
 
@@ -151,19 +150,19 @@ After booting, the LCD should show the startup / welcome screens.
 
 ## 6. Finding the ESP32 on the network
 
-The machine connects to Wi-Fi using the values in `config.cpp`.
+The machine connects to Wi-Fi using `eBankMachine/secrets.h`.
 
-Before uploading, set:
+If that file does not exist yet, copy `eBankMachine/secrets.example.h` to `eBankMachine/secrets.h` and fill in real values before uploading:
 
 ```cpp
-const char* WIFI_SSID = "YOUR_WIFI_NAME";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+constexpr const char* WIFI_SSID = "YOUR_WIFI_NAME";
+constexpr const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 ```
 
 
 ### Option A: use the keypad
 
-Press **B three times** on the keypad. The LCD should show the ESP32 IP address if Wi-Fi is connected.
+On the welcome screen, press **B three times** quickly to show the ESP32 IP address. A single **B** (after a short pause) still enters deposit mode.
 
 Then open:
 
@@ -210,14 +209,14 @@ This may not work on every school network or Windows setup. The raw IP address i
 http://ESP_IP_ADDRESS/
 ```
 
-Default login page:
+The browser will ask for HTTP basic auth. Defaults from `secrets.h`:
 
 ```text
 username: admin
 password: admin
 ```
 
-The OTA upload form then asks for the OTA password from `config.cpp`.
+The OTA upload form then also asks for the OTA password from `secrets.h`.
 
 ### Debug page
 
@@ -239,7 +238,7 @@ The debug page shows:
 - NFC scan tools
 - reboot button
 
-Warning: in the current code, `/debug` is not protected by a login. Anyone on the same network who knows the IP can open it.
+`/debug` uses the same HTTP basic auth as the OTA page. Change `WEB_USER` and `WEB_PASS` in `secrets.h` before deploying.
 
 ---
 
@@ -297,7 +296,7 @@ Try:
 
 Check:
 
-- Wi-Fi SSID and password in `config.cpp`.
+- Wi-Fi SSID and password in `eBankMachine/secrets.h`.
 - ESP32 and computer are on the same network.
 - School networks may block device-to-device traffic.
 - Use the IP from the LCD or Serial Monitor instead of `.local`.
@@ -340,15 +339,14 @@ Before sharing publicly:
 Recommended repo setup:
 
 ```text
-config.example.cpp   safe placeholder config
-config.cpp           real private config, ignored by git
-.gitignore           includes config.cpp
+eBankMachine/secrets.example.h   safe placeholder config
+eBankMachine/secrets.h           real private config, gitignored
 ```
 
 Example `.gitignore` entry:
 
 ```gitignore
-config.cpp
+eBankMachine/secrets.h
 *.bin
 *.elf
 *.map
@@ -366,7 +364,7 @@ From the main menu:
 | B | Pogs to DigiPogs / deposit |
 | C | Student-to-student transfer |
 | D | NFC card write |
-| B x3 | Show IP address |
+| B x3 (quick) | Show IP address |
 
 Inside most flows:
 
@@ -379,7 +377,7 @@ Inside most flows:
 
 ## 12. Current known notes
 
-- `/debug` is powerful and currently not protected.
+- `/debug` is powerful; it is now behind HTTP basic auth, but still not meant for a public network.
 - First upload must be done over USB.
 - OTA only works after Wi-Fi connects.
 - If the ESP32 cannot be found, fix USB drivers/cable before debugging the code.

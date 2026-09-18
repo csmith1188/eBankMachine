@@ -1,259 +1,168 @@
-// ============================
-// deposit.cpp
-// ============================
-#include "eBankMachine.h"
+#include "deposit.h"
+
+#include "app.h"
+#include "config.h"
+#include "debug_log.h"
+#include "drop.h"
+#include "formbar.h"
+#include "hardware.h"
+#include "net.h"
+#include "ui.h"
+
+enum class DepositState : uint8_t {
+  EnterId,
+  ConfirmId,
+  Scanning
+};
+
+static DepositState state = DepositState::EnterId;
+static long toId = 0;
+static int depositCount = 0;
+static bool beamTiming = false;
+static uint32_t beamStartMs = 0;
+static uint32_t startMs = 0;
+static uint32_t lastSampleUs = 0;
+static uint32_t nextAllowedAt = 0;
 
 void startDepositFlow() {
-  tradeMode = MODE_REAL_TO_DIGI;
-  depState = DEP_ENTER_ID;
-  depToId = 0;
+  appSetMode(TradeMode::Deposit);
+  state = DepositState::EnterId;
+  toId = 0;
   depositCount = 0;
-  depBeamTiming = false;
-  depBeamStartMs = 0;
-  depWasAbove = false;
-  depNextAllowedAt = 0;
-  showDepositEnterId();
+  beamTiming = false;
+  beamStartMs = 0;
+  nextAllowedAt = 0;
+  uiEntry(F("Enter ID"));
 }
 
 void depositTick() {
-  if (!(tradeMode == MODE_REAL_TO_DIGI && depState == DEP_SCANNING && motionState == MS_IDLE)) return;
+  if (appMode() != TradeMode::Deposit || state != DepositState::Scanning || dropActive()) return;
 
-  unsigned long nowUs = micros();
-  if (nowUs - depLastSampleUs < DEP_SAMPLE_US) return;
-  depLastSampleUs = nowUs;
+  const uint32_t nowUs = micros();
+  if (nowUs - lastSampleUs < kDepSampleUs) return;
+  lastSampleUs = nowUs;
 
-  int v = analogRead(IR_DEP_PIN);
-  bool broken = (v > IR_DEP_THRESHOLD); // beam broken?
+  const int v = analogRead(PIN_IR_DEP);
+  const bool broken = (v > irDepThreshold);
+  const uint32_t nowMs = millis();
+  if (nowMs - startMs <= kDepositArmMs) return;
 
-  unsigned long nowMs = millis();
-  bool armed = (nowMs - depStartMs > 100);
-
-  if (!armed) {
-    depWasAbove = broken;
+  if (broken) {
+    if (!beamTiming) {
+      beamTiming = true;
+      beamStartMs = nowMs;
+    }
     return;
   }
 
-  // Strict beam timing window
-  if (broken) {
-    if (!depBeamTiming) {
-      depBeamTiming = true;
-      depBeamStartMs = nowMs;
-    }
-  } else {
-    // beam cleared
-    if (depBeamTiming) {
-      unsigned long dur = nowMs - depBeamStartMs;
+  if (!beamTiming) return;
 
-      depLastBeamMs = dur;
-      if (dur > depMaxBeamMs) depMaxBeamMs = dur;
+  const uint32_t dur = nowMs - beamStartMs;
+  beamTiming = false;
+  beamStartMs = 0;
+  dbgPrintf("Beam %lums\n", (unsigned long)dur);
 
-      dbgPrintf("Beam %lums\n", dur);
-
-      // Strict range check
-      if (dur < DEP_BEAM_MIN_MS || dur > DEP_BEAM_MAX_MS) {
-        dbgPrintf("TAMPER dur=%lums (range %lu-%lums)\n",
-                  dur, DEP_BEAM_MIN_MS, DEP_BEAM_MAX_MS);
-
-        showMsg("TAMPER", "Beam time bad", 2000);
-
-        // Reset deposit scanning state cleanly
-        depBeamTiming = false;
-        depBeamStartMs = 0;
-        depWasAbove = false;
-        depNextAllowedAt = 0;
-        depositCount = 0;
-        depToId = 0;
-        depState = DEP_ENTER_ID;
-
-        tradeMode = MODE_SELECT;
-        showModeMenu();
-        return;
-      }
-
-      // Valid pog -> count it (cooldown protected)
-      if (nowMs >= depNextAllowedAt) {
-        depositCount++;
-        depNextAllowedAt = nowMs + DEP_COOLDOWN_MS;
-
-        lcd.setCursor(7, 1);
-        lcd.print("     ");
-        lcd.setCursor(7, 1);
-        lcd.print(depositCount);
-      }
-
-      depBeamTiming = false;
-      depBeamStartMs = 0;
-    }
+  if (dur < kDepBeamMinMs || dur > kDepBeamMaxMs) {
+    dbgPrintf("TAMPER dur=%lums (range %lu-%lums)\n",
+              (unsigned long)dur, (unsigned long)kDepBeamMinMs, (unsigned long)kDepBeamMaxMs);
+    uiShow("TAMPER", "Beam time bad", 2000);
+    appGoMenu();
+    return;
   }
 
-  depWasAbove = broken; // keep this updated even if you don't use it now
-}
-
-static void stashNameToBuf(const String& name) {
-  memset(idNameBuf, 0, sizeof(idNameBuf));
-  if (!name.length()) return;
-
-  String n = name;
-  n.replace("\r", "");
-  n.replace("\n", "");
-  strncpy(idNameBuf, n.c_str(), sizeof(idNameBuf) - 1);
+  if (nowMs >= nextAllowedAt) {
+    depositCount++;
+    nextAllowedAt = nowMs + kDepCooldownMs;
+    lcd.setCursor(7, 1);
+    lcd.print("     ");
+    lcd.setCursor(7, 1);
+    lcd.print(depositCount);
+  }
 }
 
 void handleDepositKey(char k) {
-  if (tradeMode != MODE_REAL_TO_DIGI) return;
+  if (appMode() != TradeMode::Deposit) return;
 
-  // ============================
-  // Confirm ID screen
-  // ============================
-  if (depState == DEP_CONFIRM_ID) {
+  if (state == DepositState::ConfirmId) {
     if (k == '*') {
-      depState = DEP_ENTER_ID;
-      depToId = 0;
-      showDepositEnterId();
-      clearEntryLine();
-      return;
-    }
-    if (k == '#') {
-      depState = DEP_SCANNING;
+      state = DepositState::EnterId;
+      toId = 0;
+      uiEntry(F("Enter ID"));
+    } else if (k == '#') {
+      state = DepositState::Scanning;
       depositCount = 0;
-
-      depWasAbove = false;
-      depNextAllowedAt = 0;
-      depBeamTiming = false;
-      depBeamStartMs = 0;
-
-      depStartMs = millis();
-      depLastSampleUs = micros();
-
-      showDepositScanning();
-      return;
+      beamTiming = false;
+      beamStartMs = 0;
+      nextAllowedAt = 0;
+      startMs = millis();
+      lastSampleUs = micros();
+      uiDepositScanning();
     }
     return;
   }
 
-  // ============================
-  // Enter ID mode
-  // ============================
-  if (depState == DEP_ENTER_ID) {
-
-    // * = back/clear
+  if (state == DepositState::EnterId) {
     if (k == '*') {
-      if (numLen == 0) {
-        tradeMode = MODE_SELECT;
-        showModeMenu();
-      } else {
-        showDepositEnterId();
-        clearEntryLine();
-      }
+      if (Entry::length() == 0) appGoMenu();
+      else uiEntry(F("Enter ID"));
       return;
     }
-
-    // digits = type ID
     if (k >= '0' && k <= '9') {
-      if (numLen < sizeof(numBuf) - 1) {
-        numBuf[numLen++] = k;
-        numBuf[numLen] = '\0';
-
-        lcd.setCursor(7, 1);
-        lcd.print("         ");
-        lcd.setCursor(7, 1);
-        lcd.print(numBuf);
-      }
+      uiAcceptDigit(k, false);
       return;
     }
-
-    // # = confirm ID
     if (k == '#') {
-      long val = (numLen > 0) ? atol(numBuf) : 0;
-
+      const long val = Entry::value();
       if (val <= 0) {
-        showMsg("Invalid ID", nullptr, 900);
-        showDepositEnterId();
-        clearEntryLine();
+        uiShow("Invalid ID", nullptr, 900);
+        uiEntry(F("Enter ID"));
         return;
       }
-
-      wifiEnsureConnected();
-      if (WiFi.status() != WL_CONNECTED) {
-        showMsg("No WiFi", "Try again", 1500);
-        showDepositEnterId();
-        clearEntryLine();
+      if (!lookupUserInteractive(val)) {
+        uiEntry(F("Enter ID"));
         return;
       }
-
-      showMsg("Checking ID", "Please wait", 0);
-
-      String name;
-      int httpc = 0;
-      bool ok = formbarUserExists((int)val, name, httpc);
-
-      if (!ok) {
-        if (httpc == 404) showMsg("ID Not Found", "Try again", 1600);
-        else showMsg("Bad ID/WiFi", "Try again", 1600);
-        showDepositEnterId();
-        clearEntryLine();
-        return;
-      }
-
-      depToId = val;
-      stashNameToBuf(name);
-      depState = DEP_CONFIRM_ID;
-      showConfirmId(nullptr, depToId, idNameBuf);
-      return;
+      toId = val;
+      state = DepositState::ConfirmId;
+      uiConfirmId(toId, stashedName());
     }
-
     return;
   }
 
-  // ============================
-  // Scanning mode
-  // ============================
+  if (state != DepositState::Scanning) return;
 
-  // OPTIONAL but recommended: * cancels scanning
-  if (depState == DEP_SCANNING && k == '*') {
-    depState = DEP_ENTER_ID;
-    depToId = 0;
-    depositCount = 0;
-    depBeamTiming = false;
-    depBeamStartMs = 0;
-    showDepositEnterId();
-    clearEntryLine();
+  if (k == '*') {
+    startDepositFlow();
     return;
   }
 
-  // # sends deposit
-  if (depState == DEP_SCANNING && k == '#') {
-    wifiEnsureConnected();
-    showMsg("Sending deposit", "Please wait", 0);
+  if (k != '#') return;
 
-    int dp = depositCount * DIGIPOGS_PER_POG_DEPOSIT;
-    String resp;
-    int httpc = 0;
-    FbErr err;
-
-    bool ok = formbarTransferEx(
-      KIOSK_ID,
-      (int)depToId,
-      dp,
-      "Pogs -> Digi",
-      KIOSK_ACCOUNT_PIN,
-      resp,
-      httpc,
-      err);
-
-    if (ok) {
-      char l1[17];
-      snprintf(l1, sizeof(l1), "+%d dpogs", dp);
-      showMsg("Deposit OK", l1, 1800);
-      dbgPrintf("Deposit OK to=%ld dp=%d\n", depToId, dp);
-    } else {
-      showMsg("Deposit FAIL", fbErrMsg(err), 2500);
-      dbgPrintf("Deposit FAIL err=%d http=%d resp=%s\n", (int)err, httpc, resp.c_str());
-    }
-
-    tradeMode = MODE_SELECT;
-    depState = DEP_ENTER_ID;
-    showModeMenu();
+  if (depositCount <= 0) {
+    uiShow("No pogs", "Insert first", 1400);
+    uiDepositScanning();
     return;
   }
+
+  netEnsureConnected();
+  uiShow("Sending deposit", "Please wait");
+
+  const int dp = depositCount * kDpogsPerPogDeposit;
+  String resp;
+  int httpc = 0;
+  FbErr err;
+  const bool ok = formbarTransfer(
+    KIOSK_ID, (int)toId, dp, "Pogs -> Digi", KIOSK_ACCOUNT_PIN, resp, httpc, err);
+
+  if (ok) {
+    char l1[kLcdLineCap];
+    snprintf(l1, sizeof(l1), "+%d dpogs", dp);
+    uiShow("Deposit OK", l1, 1800);
+    dbgPrintf("Deposit OK to=%ld dp=%d\n", toId, dp);
+  } else {
+    uiShow("Deposit FAIL", fbErrMsg(err), 2500);
+    dbgPrintf("Deposit FAIL err=%d http=%d resp=%s\n", (int)err, httpc, resp.c_str());
+  }
+
+  appGoMenu();
 }

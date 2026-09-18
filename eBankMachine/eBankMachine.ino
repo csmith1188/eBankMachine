@@ -1,4 +1,13 @@
-#include "eBankMachine.h"
+#include "debug_log.h"
+#include "hardware.h"
+#include "keypad_router.h"
+#include "net.h"
+#include "nfc.h"
+#include "deposit.h"
+#include "drop.h"
+#include "refund.h"
+#include "ui.h"
+#include "web.h"
 
 void setup() {
   Serial.begin(115200);
@@ -8,45 +17,18 @@ void setup() {
   dbgPrintf("BOOT\n");
 
   hardwareInit();
-
-  // WiFi initial connect (15s)
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  unsigned long startAttemptTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 15000) {
-    delay(250);
-  }
-
-
-
-  if (WiFi.status() == WL_CONNECTED) {
-    dbgPrintf("WiFi OK IP=%s\n", WiFi.localIP().toString().c_str());
-    dbgPrintf("MAC=%s\n", WiFi.macAddress().c_str());
-    setupWebOtaOnce();
-  } else {
-    dbgPrintf("WiFi FAILED\n");
-  }
-
-  showModeMenu();
+  netInit();
+  uiMenu();
 }
 
 void loop() {
-  otaTick();
-
-  if (WiFi.status() != WL_CONNECTED) wifiEnsureConnected();
-
-  refundTick();
-  limitSwitchTick();
-
+  webTick();
+  netTick();
+  hardwareTick();
   dropTick();
   depositTick();
-  cardTick();
-
   nfcWriteTick();
-
+  refundTick();
   keypadTick();
-
   delay(1);
 }

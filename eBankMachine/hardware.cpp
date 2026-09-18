@@ -1,174 +1,216 @@
-#include "eBankMachine.h"
+#include "hardware.h"
+
+#include "app.h"
+#include "config.h"
+#include "debug_log.h"
+#include "drop.h"
+#include "inventory.h"
+#include "refund.h"
+#include "ui.h"
+#include "util.h"
+#include "withdraw.h"
+
+#include <Wire.h>
+
+static char KEYS[KEYPAD_ROWS][KEYPAD_COLS] = {
+  { '1', '2', '3', 'A' },
+  { '4', '5', '6', 'B' },
+  { '7', '8', '9', 'C' },
+  { '*', '0', '#', 'D' }
+};
+static byte rowPins[KEYPAD_ROWS] = { 19, 18, 33, 32 };
+static byte colPins[KEYPAD_COLS] = { 25, 26, 27, 13 };
+
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+Servo hopperServo;
+Adafruit_PN532 nfc(PIN_PN532_IRQ, PIN_PN532_RESET);
+Keypad keypad = Keypad(makeKeymap(KEYS), rowPins, colPins, KEYPAD_ROWS, KEYPAD_COLS);
+
+int irDropThreshold = 0;
+int irDepThreshold = 0;
+bool limitSwitchPressed = false;
 
 static bool servoAttached = false;
+static int lastReading = LOW;
+static int stableState = LOW;
+static uint32_t lastChangeMs = 0;
+static bool prevLimitPressed = false;
+
+static bool recovering = false;
+static uint32_t recoverUntilMs = 0;
+static bool refundAfterRecover = false;
 
 void servoAttach() {
-  if (!servoAttached) {
-    myServo.setPeriodHertz(50);
-    myServo.attach(SERVO_PIN, 500, 2400);
-    servoAttached = true;
-  }
+  if (servoAttached) return;
+  hopperServo.setPeriodHertz(kServoHz);
+  hopperServo.attach(PIN_SERVO, kServoMinUs, kServoMaxUs);
+  servoAttached = true;
 }
 
-void servoStopDetach() {
-  if (servoAttached) {
-    myServo.writeMicroseconds(neutral_us);
-    delay(10);
-    myServo.detach();
-    servoAttached = false;
-  }
+void servoStop() {
+  if (!servoAttached) return;
+  hopperServo.writeMicroseconds(kServoNeutralUs);
+  delay(10);
+  hopperServo.detach();
+  servoAttached = false;
 }
 
-static void calibrateIRPin(int pin, int& thrOut) {
+void servoWriteUs(int us) {
+  servoAttach();
+  hopperServo.writeMicroseconds(us);
+}
+
+static void calibrateIrPin(int pin, int& thrOut) {
   long sum = 0;
-  otaDelay(200);
-  for (int i = 0; i < CALIB_READS; i++) {
+  coopDelay(200);
+  for (int i = 0; i < kCalibReads; i++) {
     sum += analogRead(pin);
-    otaDelay(25);
+    coopDelay(25);
   }
-  int baseline = sum / CALIB_READS;
-  thrOut = baseline + 300;
-  if (thrOut > 3900) thrOut = 3900;
-  if (thrOut < 0) thrOut = 0;
+  const int baseline = (int)(sum / kCalibReads);
+  thrOut = clampi(baseline + kIrThresholdOffset, 0, kIrThresholdMax);
 }
 
-void IR_Calibration() {
-  showMsg("IR Calibrating", "Keep chutes clear", 0);
-
-  calibrateIRPin(IR_DROP_PIN, IR_DROP_THRESHOLD);
-  calibrateIRPin(IR_DEP_PIN, IR_DEP_THRESHOLD);
-
-  irLastSample = millis();
-  irWasAbove = false;
-
-  depLastSampleUs = micros();
-  depWasAbove = false;
-
-  dbgPrintf("IR thr drop=%d dep=%d\n", IR_DROP_THRESHOLD, IR_DEP_THRESHOLD);
+void irCalibrate() {
+  uiShow("IR Calibrating", "Keep chutes clear");
+  calibrateIrPin(PIN_IR_DROP, irDropThreshold);
+  calibrateIrPin(PIN_IR_DEP, irDepThreshold);
+  dbgPrintf("IR thr drop=%d dep=%d\n", irDropThreshold, irDepThreshold);
 }
 
-void handleLimitPressed() {
+static void startUnjam() {
+  uiShow("LIMIT HIT", "UNJAM UP 40s");
+  servoWriteUs(kServoUpUs);
+  recovering = true;
+  recoverUntilMs = millis() + kUnjamMs;
+}
+
+static void handleLimitPressed() {
   dbgPrintf("LIMIT pressed\n");
 
-if (motionState == MS_DROPPING) {
-
-  // Only allow refunds during real DIGI -> POGS withdraw mode (not debug drops)
-  bool allowRefund =
-      (tradeMode == MODE_DIGI_TO_REAL) &&
-      !dbgDropAllAutoStop;   // extra safety: block "/debug/dropall"
-
-  if (allowRefund) {
-    int remainingPogs = (int)targetDrops - (int)droppedCount;
-    if (remainingPogs < 0) remainingPogs = 0;
-
-    int remainingDpogs = remainingPogs * DIGIPOGS_PER_POG_WITHDRAW;
-
-    if (remainingDpogs > 0 && wzFrom > 0) {
-      refundPending = true;
-      refundToId = wzFrom;
-      refundDigipogs = remainingDpogs;
-      nextRefundTryAt = millis();
-      dbgPrintf("Refund pending to=%ld dpogs=%d\n", refundToId, refundDigipogs);
+  if (dropActive()) {
+    const bool allowRefund = (appMode() == TradeMode::Withdraw) && !dropIsDebugAll();
+    if (allowRefund) {
+      const int remainingPogs = dropRemaining();
+      const int remainingDpogs = remainingPogs * kDpogsPerPogWithdraw;
+      const long fromId = withdrawFromId();
+      if (remainingDpogs > 0 && fromId > 0) {
+        refundQueue(fromId, remainingDpogs);
+        refundAfterRecover = true;
+      } else {
+        refundClear();
+        refundAfterRecover = false;
+      }
     } else {
-      refundPending = false;
-      refundToId = 0;
-      refundDigipogs = 0;
+      refundClear();
+      refundAfterRecover = false;
     }
-  } else {
-    // Debug/manual drops should never create refunds
-    refundPending = false;
-    refundToId = 0;
-    refundDigipogs = 0;
+
+    dropAbort();
+    inventoryRefill();
   }
 
-  servoStopDetach();
-  motionState = MS_IDLE;
-  currencyCount = MAX_CURRENCY_CAPACITY;
-  targetDrops = 0;
-  droppedCount = 0;
+  startUnjam();
 }
-  showMsg("LIMIT HIT", "UNJAM UP 40s", 0);
-  servoAttach();
-  myServo.writeMicroseconds(SERVO_UP_US);
-  otaDelay(40000);
-  servoStopDetach();
 
-  wzState = WZ_ENTER_FROM;
-  numLen = 0;
-  numBuf[0] = '\0';
+static void finishRecovery() {
+  servoStop();
+  recovering = false;
 
-  if (refundPending) {
-    showMsg("Refunding...", "Please wait", 0);
-    bool sent = trySendRefundNow();
-    if (sent) showMsg("Refund SENT", "OK", 1500);
-    else {
-      nextRefundTryAt = millis() + REFUND_RETRY_MS;
-      showMsg("Refund FAILED", "Auto retry...", 1800);
+  if (refundAfterRecover && refundIsPending()) {
+    uiShow("Refunding...", "Please wait");
+    if (refundTryNow()) {
+      uiShow("Refund SENT", "OK", 1500);
+    } else {
+      refundScheduleRetry();
+      uiShow("Refund FAILED", "Auto retry...", 1800);
     }
   } else {
-    showMsg("Recovered", "Ready", 1200);
+    uiShow("Recovered", "Ready", 1200);
   }
 
-  tradeMode = MODE_SELECT;
-  showModeMenu();
+  refundAfterRecover = false;
+  appGoMenu();
 }
 
-void limitSwitchTick() {
-  int reading = digitalRead(SWITCH_PIN);
+bool hardwareRecovering() {
+  return recovering;
+}
+
+void hardwareTick() {
+  const int reading = digitalRead(PIN_LIMIT);
   if (reading != lastReading) {
-    lastChange = millis();
+    lastChangeMs = millis();
     lastReading = reading;
   }
-  if (millis() - lastChange > DEBOUNCE_MS && reading != stableState) {
-    stableState = reading;
-    limitSwitchPressed = (ACTIVE_LOW ? (stableState == LOW) : (stableState == HIGH));
-  }
-  digitalWrite(LED_PIN, limitSwitchPressed ? HIGH : LOW);
 
-  if (limitSwitchPressed && !prevLimitSwitchPressed) {
-    prevLimitSwitchPressed = true;
-    handleLimitPressed();
-    return;
+  if (millis() - lastChangeMs > kDebounceMs && reading != stableState) {
+    stableState = reading;
+    limitSwitchPressed = kLimitActiveLow ? (stableState == LOW) : (stableState == HIGH);
   }
-  if (!limitSwitchPressed && prevLimitSwitchPressed) {
-    prevLimitSwitchPressed = false;
+
+  digitalWrite(PIN_LED, limitSwitchPressed ? HIGH : LOW);
+
+  if (limitSwitchPressed && !prevLimitPressed) {
+    prevLimitPressed = true;
+    handleLimitPressed();
+  } else if (!limitSwitchPressed && prevLimitPressed) {
+    prevLimitPressed = false;
+  }
+
+  if (recovering && (int32_t)(millis() - recoverUntilMs) >= 0) {
+    finishRecovery();
   }
 }
 
 void hardwareInit() {
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  analogReadResolution(12);
 
-  pinMode(SWITCH_PIN, ACTIVE_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
+  pinMode(PIN_LIMIT, kLimitActiveLow ? INPUT_PULLUP : INPUT_PULLDOWN);
 
-  lastReading = digitalRead(SWITCH_PIN);
+  lastReading = digitalRead(PIN_LIMIT);
   stableState = lastReading;
-  limitSwitchPressed = (ACTIVE_LOW ? (stableState == LOW) : (stableState == HIGH));
-  prevLimitSwitchPressed = limitSwitchPressed;
+  limitSwitchPressed = kLimitActiveLow ? (stableState == LOW) : (stableState == HIGH);
+  prevLimitPressed = limitSwitchPressed;
 
   keypad.setDebounceTime(15);
   keypad.getKeys();
   delay(20);
   keypad.getKeys();
   for (int i = 0; i < LIST_MAX; i++) {
-    KeyState s = keypad.key[i].kstate;
+    const KeyState s = keypad.key[i].kstate;
     if (s == PRESSED || s == HOLD) {
       dbgPrintf("KEYPAD held at boot: %c\n", keypad.key[i].kchar);
     }
   }
 
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.begin(PIN_SDA, PIN_SCL);
   delay(40);
 
   lcd.init();
   lcd.backlight();
-  showMsg("BOOTING...", nullptr, 500);
+  uiShow("BOOTING...", nullptr, 500);
+
+  inventoryLoad();
 
   nfc.begin();
-  uint32_t v = nfc.getFirmwareVersion();
-  if (v) nfc.SAMConfig();
+  const uint32_t ver = nfc.getFirmwareVersion();
+  if (ver) {
+    nfc.SAMConfig();
+    dbgPrintf("PN532 OK fw=%lX\n", (unsigned long)ver);
+  } else {
+    dbgPrintf("PN532 NOT FOUND\n");
+  }
 
-  IR_Calibration();
+  irCalibrate();
 
-  if (limitSwitchPressed) handleLimitPressed();
+  if (limitSwitchPressed) {
+    handleLimitPressed();
+    while (hardwareRecovering()) {
+      hardwareTick();
+      delay(1);
+    }
+  }
 }

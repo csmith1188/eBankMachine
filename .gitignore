@@ -4,3 +4,4 @@
 *.map
 eBankMachine/build/esp32.esp32.esp32/flash_args
 /eBankMachine/build
+eBankMachine/secrets.h
