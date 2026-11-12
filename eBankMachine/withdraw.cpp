@@ -25,6 +25,7 @@ void handleWithdrawKey(char k) {
 
   unsigned long now = millis();
 
+/*
   // C x3 -> drop 1
   if (k == 'C') {
     if (motionState != MS_IDLE) {
@@ -43,6 +44,8 @@ void handleWithdrawKey(char k) {
     }
     return;
   }
+
+  */
 
   // D x3 -> unjam 2s
   if (k == 'D') {
